@@ -1,3 +1,17 @@
+---
+date_created: 2026-08-30
+target_system: "Proxmox VE Cluster + Debian/Ubuntu QDevice Host"
+author: cladkyimaffin-hue
+purpose: "Пошаговая инструкция по установке и настройке Corosync QDevice на отдельном третьем хосте"
+status: "completed"
+related_files:
+  - "pve01+pve02+Qdevice.md"
+tags:
+  - ProxmoxVE
+  - QDevice
+  - Corosync
+  - Quorum
+---
 ### USER
 Proxmox у меня два сервера как настроить qdevice
 
