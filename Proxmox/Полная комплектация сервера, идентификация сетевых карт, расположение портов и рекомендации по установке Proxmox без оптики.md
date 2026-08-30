@@ -5,6 +5,7 @@
 **Теги:** #сервер #huawei #xfusion #сеть #proxmox #DAC
 
 ---
+<img width="676" height="192" alt="image" src="https://github.com/user-attachments/assets/5b6c19c1-4069-4786-b948-71682baae714" />
 
 ## 📌 Сообщение 1: Исходный запрос
 **Пользователь:**  
