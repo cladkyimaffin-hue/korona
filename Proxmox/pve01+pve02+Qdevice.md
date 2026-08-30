@@ -1,3 +1,17 @@
+---
+date_created: 2026-08-30
+target_system: "Proxmox VE 8.2.2 (Cluster: pve01, pve02 + QDevice)"
+author: cladkyimaffin-hue
+purpose: "Разбор интерфейса Proxmox VE (Datacenter, HA) и принципов работы кворума в двухузловом кластере"
+status: "completed"
+related_files:
+  - "Добавить qdevice.md"
+tags:
+  - ProxmoxVE
+  - HighAvailability
+  - QDevice
+  - Cluster
+---
 ### USER
 Нужно два нода Proxmox pve01 pve02 обьединить
 
