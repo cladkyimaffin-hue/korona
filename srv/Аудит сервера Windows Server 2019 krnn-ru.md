@@ -1,3 +1,18 @@
+---
+date_created: 2026-08-30
+target_system: "Windows Server 2019 (KORONA, домен krnn.ru)"
+author: cladkyimaffin-hue
+purpose: "Комплексный аудит ролей, служб и установленного программного обеспечения сервера KORONA"
+status: "completed"
+related_files: []
+tags:
+  - Windows-Server-2019
+  - Audit
+  - 1C-Enterprise
+  - SQL-Server
+  - RDS
+  - SIGUR
+---
 <img width="1213" height="489" alt="image" src="https://github.com/user-attachments/assets/c9f8b990-9b51-4ef3-94b4-d6c22e6517b1" />### USER
 Нужно сделать аудит сервера
 Известно что на сервере стоит windows server 2019 
