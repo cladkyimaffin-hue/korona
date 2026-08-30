@@ -1,3 +1,18 @@
+---
+date_created: 2026-08-30
+target_system: "3x Proxmox VE Servers, Ceph Cluster"
+author: cladkyimaffin-hue
+purpose: "Архитектурные рекомендации по конфигурации дисков (отдельные OSD вместо локального RAID1 для 7TB дисков) и развертывание 3-узлового кластера Proxmox + Ceph"
+status: "completed"
+related_files:
+  - "Создание Ceph №1.md"
+tags:
+  - ProxmoxVE
+  - Ceph
+  - Storage
+  - Architecture
+  - OSD
+---
 # Полный чат: Настройка Proxmox VE + Ceph кластера
 
 **Дата:** Август 2026  
