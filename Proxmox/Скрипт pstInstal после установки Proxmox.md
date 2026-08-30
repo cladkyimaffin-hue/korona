@@ -1,3 +1,15 @@
+---
+date_created: 2026-08-30
+target_system: "Proxmox VE (Post-Installation)"
+author: cladkyimaffin-hue
+purpose: "Пояснение финального сообщения установщика и рекомендуемые первые действия"
+status: "completed"
+related_files: []
+tags:
+  - ProxmoxVE
+  - Installation
+  - BestPractices
+---
 ### ASSISTANT
 Это диалоговое окно в стиле whiptail из скрипта пост‑установки/настройки Proxmox VE. Скрипт обнаружил, что apt‑репозиторий `pve-enterprise` уже настроен на вашем хосте, и спрашивает, как с ним поступить.
 
