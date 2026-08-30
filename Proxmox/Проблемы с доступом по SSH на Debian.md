@@ -1,3 +1,16 @@
+---
+date_created: 2026-08-30
+target_system: "Debian / Proxmox VE"
+author: cladkyimaffin-hue
+purpose: "Решение типичных проблем с SSH-доступом (root login, статический IP)"
+status: "completed"
+related_files: []
+tags:
+  - Debian
+  - ProxmoxVE
+  - SSH
+  - Troubleshooting
+---
 ### USER
 не могу зайти на debian ssh установлен
 
