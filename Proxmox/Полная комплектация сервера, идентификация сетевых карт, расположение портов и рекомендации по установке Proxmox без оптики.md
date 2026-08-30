@@ -1,3 +1,19 @@
+---
+date_created: 2026-08-30
+target_system: "Huawei FusionServer 2288H V5 (H22H-05-S8AFF), Proxmox VE"
+author: cladkyimaffin-hue
+purpose: "Описание аппаратной конфигурации, маппинг сетевых портов (Intel X722/X710) и рекомендации по подключению через DAC-кабели без использования оптики"
+status: "completed"
+related_files:
+  - "Железа серверов подборка коммутаторов.md"
+tags:
+  - Hardware
+  - Huawei-2288H-V5
+  - Intel-X722
+  - Intel-X710
+  - DAC-cable
+  - ProxmoxVE
+---
 # Полный чат: Сервер Huawei 2288H V5 (H22H-05-S8AFF)
 
 **Дата:** Август 2026  
