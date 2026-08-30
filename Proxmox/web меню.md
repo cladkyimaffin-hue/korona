@@ -1,3 +1,16 @@
+---
+date_created: 2026-08-30
+target_system: "Proxmox VE 8.x"
+author: cladkyimaffin-hue
+purpose: "Документация по настройке Software Defined Networking (SDN) в Proxmox"
+status: "completed"
+related_files: []
+tags:
+  - ProxmoxVE
+  - SDN
+  - Networking
+  - VLAN
+---
 ### USER
 Распеши все меню подробно
 
