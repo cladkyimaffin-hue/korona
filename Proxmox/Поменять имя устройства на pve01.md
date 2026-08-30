@@ -1,3 +1,16 @@
+---
+date_created: 2026-08-30
+target_system: "Proxmox VE Node (Standalone or Cluster)"
+author: cladkyimaffin-hue
+purpose: "Безопасное переименование ноды Proxmox с переносом конфигураций виртуальных машин"
+status: "completed"
+related_files: []
+tags:
+  - ProxmoxVE
+  - Administration
+  - Hostname
+  - Troubleshooting
+---
 ### USER
 Поменять имя устройства на pve01
 
