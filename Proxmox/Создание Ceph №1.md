@@ -1,3 +1,18 @@
+---
+date_created: 2026-08-30
+target_system: "Proxmox VE Cluster with Ceph Storage"
+author: cladkyimaffin-hue
+purpose: "Теория производительности Ceph (WAL/DB на NVMe) и пошаговое развертывание кластера Ceph + HA"
+status: "completed"
+related_files:
+  - "pve01+pve02+Qdevice.md"
+tags:
+  - ProxmoxVE
+  - Ceph
+  - HighAvailability
+  - Storage
+  - NVMe
+---
 ### USER
 В ceph кластере для osd  обязательно надо выносить бд на отдельный nvme диск иначе все будет жутко тормозить.если делать на HDD из 3 дисков без выноса бд, то скорость будет сильно меньше чем просто использовать один диск)
 Поясни
