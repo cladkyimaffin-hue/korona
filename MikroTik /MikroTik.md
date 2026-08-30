@@ -1,3 +1,17 @@
+---
+date_created: 2026-08-30
+target_system: "MikroTik CRS326-24G-2S+ (RouterOS v7.23.1)"
+author: cladkyimaffin-hue
+purpose: "Диагностика устройства, анализ сетевых настроек (PPPoE, внешний IP) и подготовка к настройке VPN (WireGuard/L2TP)"
+status: "in_progress"
+related_files: []
+tags:
+  - MikroTik
+  - RouterOS
+  - WireGuard
+  - PPPoE
+  - Network-Diagnostics
+---
 ### USER
 как узнать ip микротика и модель и сколько портов?
 
