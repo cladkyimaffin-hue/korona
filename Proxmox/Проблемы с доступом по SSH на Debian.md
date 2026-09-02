@@ -1,15 +1,61 @@
 ---
+# === БАЗОВАЯ ИНФОРМАЦИЯ ===
 date_created: 2026-08-30
-target_system: "Debian / Proxmox VE"
+date_modified: 2026-09-02
 author: cladkyimaffin-hue
-purpose: "Решение типичных проблем с SSH-доступом (root login, статический IP)"
 status: "completed"
-related_files: []
+# === КОНТЕКСТ СИСТЕМЫ ===
+target_system: "Debian 12/13, Proxmox VE"
+environment: "production"
+# === БЫСТРАЯ КЛАССИФИКАЦИЯ ===
+category: "troubleshooting"
+severity: "high"
+problem: "Невозможность подключения к серверу по SSH (отказ в соединении, ошибка аутентификации)."
+solution: "Проверка конфигурации `sshd_config`, статуса службы, правил брандмауэра и корректности SSH-ключей."
+root_cause: "Неверные настройки `PermitRootLogin`, блокировка портов фаерволом или повреждение `authorized_keys`."
+# === AI-СПЕЦИФИЧНЫЕ ПОЛЯ ===
+ai_summary: "Чек-лист диагностики и решения проблем с SSH-подключением к узлам Proxmox/Debian. Включает проверку конфигов, ключей и сетевой доступности."
+key_takeaways:
+  - "Для root-доступа по ключам параметр `PermitRootLogin` должен быть установлен в `prohibit-password` или `yes`."
+  - "Права на файл `~/.ssh/authorized_keys` должны быть строго `600`, а на папку `~/.ssh` — `700`."
+dont_repeat:
+  - "Не предлагать полное отключение `PasswordAuthentication` до успешной проверки входа по SSH-ключам."
+  - "Не предлагать изменение порта SSH по умолчанию без обновления правил брандмауэра и конфигурации Proxmox."
+assumptions:
+  - "Физический или консольный доступ (iBMC/VNC) к серверу имеется для исправления настроек."
+# === АРТЕФАКТЫ ===
+commands: |
+  # Проверка статуса SSH
+  systemctl status sshd
+  # Проверка прав ключей
+  chmod 700 ~/.ssh
+  chmod 600 ~/.ssh/authorized_keys
+  # Перезапуск службы
+  systemctl restart sshd
+config_snippets:
+  sshd_config_snippet: |
+    PermitRootLogin prohibit-password
+    PubkeyAuthentication yes
+    PasswordAuthentication no
+urls: []
+# === СВЯЗИ ===
+related_files:
+  - "INDEX.md"
+  - "Скрипт pstInstal после установки Proxmox.md"
+depends_on: []
+superseded_by: ""
 tags:
-  - Debian
-  - ProxmoxVE
-  - SSH
-  - Troubleshooting
+  - "Troubleshooting"
+  - "SSH"
+  - "Debian"
+  - "Security"
+# === ВРЕМЕННОЙ КОНТЕКСТ ===
+last_incident: 2026-08-30
+next_review: 2026-12-01
+valid_until: 2027-01-01
+# === ОТВЕТСТВЕННОСТЬ ===
+reviewer: "cladkyimaffin-hue"
+approval_status: "approved"
 ---
 ### USER
 не могу зайти на debian ssh установлен
