@@ -1,16 +1,70 @@
 ---
+# === БАЗОВАЯ ИНФОРМАЦИЯ ===
 date_created: 2026-08-30
-target_system: "Proxmox VE Cluster + Debian/Ubuntu QDevice Host"
+date_modified: 2026-09-02
 author: cladkyimaffin-hue
-purpose: "Пошаговая инструкция по установке и настройке Corosync QDevice на отдельном третьем хосте"
 status: "completed"
+# === КОНТЕКСТ СИСТЕМЫ ===
+target_system: "Proxmox VE Cluster + Debian/Ubuntu QDevice Host"
+environment: "production"
+# === БЫСТРАЯ КЛАССИФИКАЦИЯ ===
+category: "setup"
+severity: "critical"
+problem: "Кластер из 2-3 нод теряет кворум при отказе или сетевой изоляции одного из узлов, что приводит к остановке HA и Ceph (split-brain protection)."
+solution: "Развертывание легковесного сервиса corosync-qnetd на независимом третьем хосте и его интеграция в кластер через команду `pvecm qdevice setup`."
+root_cause: "Четное количество узлов (2) не может обеспечить математический кворум (N/2 + 1) при потере связи между ними."
+# === AI-СПЕЦИФИЧНЫЕ ПОЛЯ ===
+ai_summary: "Пошаговая инструкция по добавлению Corosync QDevice в кластер Proxmox. Описывает установку пакетов на узлы и хост-свидетель, настройку SSH-ключей и проверку статуса кворума через `pvecm status`."
+key_takeaways:
+  - "QDevice должен находиться на независимом третьем хосте (не на одной из боевых нод)."
+  - "Для подключения используется команда `pvecm qdevice setup <IP_адрес_QDevice>`."
+  - "После настройки Expected votes становится 3, Quorum = 2, что позволяет кластеру выживать при потере 1 узла."
+dont_repeat:
+  - "Не предлагать команду `pvecm add qdevice <IP>` — она устарела и вызывает ошибку 'too many arguments'. Использовать `pvecm qdevice setup`."
+  - "Не предлагать размещение полноценного Ceph Monitor на хосте QDevice, если его единственная задача — обеспечение кворума."
+assumptions:
+  - "Хост QDevice имеет статический IP и доступен по TCP порту 5403 с узлов Proxmox."
+  - "На хосте QDevice установлена ОС Debian/Ubuntu."
+# === АРТЕФАКТЫ ===
+commands: |
+  # На хосте QDevice
+  apt update && apt install -y corosync-qnetd
+  systemctl enable --now corosync-qnetd
+  ufw allow 5403/tcp
+  
+  # На узлах Proxmox (pve01, pve02)
+  apt update && apt install -y corosync-qdevice
+  
+  # На одном из узлов Proxmox (инициализация)
+  pvecm qdevice setup 192.168.202.251
+  
+  # Проверка
+  pvecm status
+config_snippets:
+  qdevice_status_check: |
+    Expected votes: 3
+    Quorum: 2
+    Flags: Quorate Qdevice
+urls: []
+# === СВЯЗИ ===
 related_files:
+  - "INDEX.md"
   - "pve01+pve02+Qdevice.md"
+depends_on: []
+superseded_by: ""
 tags:
-  - ProxmoxVE
-  - QDevice
-  - Corosync
-  - Quorum
+  - "ProxmoxVE"
+  - "QDevice"
+  - "Corosync"
+  - "Quorum"
+  - "HighAvailability"
+# === ВРЕМЕННОЙ КОНТЕКСТ ===
+last_incident: 2026-08-30
+next_review: 2026-12-01
+valid_until: 2027-01-01
+# === ОТВЕТСТВЕННОСТЬ ===
+reviewer: "cladkyimaffin-hue"
+approval_status: "approved"
 ---
 ### USER
 Proxmox у меня два сервера как настроить qdevice
