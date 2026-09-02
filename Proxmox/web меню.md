@@ -1,15 +1,56 @@
 ---
+# === БАЗОВАЯ ИНФОРМАЦИЯ ===
 date_created: 2026-08-30
-target_system: "Proxmox VE 8.x"
+date_modified: 2026-09-02
 author: cladkyimaffin-hue
-purpose: "Документация по настройке Software Defined Networking (SDN) в Proxmox"
 status: "completed"
-related_files: []
+# === КОНТЕКСТ СИСТЕМЫ ===
+target_system: "Proxmox VE 8.x/9.x Web Interface"
+environment: "production"
+# === БЫСТРАЯ КЛАССИФИКАЦИЯ ===
+category: "documentation"
+severity: "info"
+problem: "Сложность навигации и понимания назначения пунктов меню Datacenter (HA, SDN, Permissions) в Proxmox VE."
+solution: "Детальный разбор каждого пункта меню веб-интерфейса с примерами конфигурации для кластера из 2 нод + QDevice."
+root_cause: "Отсутствие централизованной документации по специфике использования GUI для конкретных задач администрирования."
+# === AI-СПЕЦИФИЧНЫЕ ПОЛЯ ===
+ai_summary: "Справочник по веб-интерфейсу Proxmox VE. Подробно описывает разделы Datacenter, HA (Groups, Fencing), SDN (Zones, VNets, IPAM) и Permissions с привязкой к конфигурации кластера."
+key_takeaways:
+  - "HA требует общего хранилища (Ceph/NFS) и настроенного кворума (QDevice) для корректного failover."
+  - "Изменения в SDN применяются только после явного вызова `pvesdn apply` или кнопки Apply в GUI."
+dont_repeat:
+  - "Не предлагать использование самоподписанных сертификатов для production без предупреждения о рисках."
+  - "Не предлагать настройку EVPN для 2 нод, так как VLAN-зона является более простым и надежным решением."
+assumptions:
+  - "Пользователь имеет права Administrator в Proxmox VE."
+# === АРТЕФАКТЫ ===
+commands: |
+  # Проверка статуса HA-менеджера
+  ha-manager status
+  # Применение конфигурации SDN
+  pvesdn apply
+config_snippets:
+  ha_group_example: |
+    ha-manager groupadd grp-main pve01,pve02 --priority 1,2 --restricted 0
+urls: []
+# === СВЯЗИ ===
+related_files:
+  - "INDEX.md"
+  - "Создание Ceph №1.md"
+depends_on: []
+superseded_by: ""
 tags:
-  - ProxmoxVE
-  - SDN
-  - Networking
-  - VLAN
+  - "ProxmoxVE"
+  - "WebGUI"
+  - "HA"
+  - "SDN"
+# === ВРЕМЕННОЙ КОНТЕКСТ ===
+last_incident: 2026-08-30
+next_review: 2026-12-01
+valid_until: 2027-01-01
+# === ОТВЕТСТВЕННОСТЬ ===
+reviewer: "cladkyimaffin-hue"
+approval_status: "approved"
 ---
 ### USER
 Распеши все меню подробно
