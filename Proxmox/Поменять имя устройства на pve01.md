@@ -1,15 +1,58 @@
 ---
+# === БАЗОВАЯ ИНФОРМАЦИЯ ===
 date_created: 2026-08-30
-target_system: "Proxmox VE Node (Standalone or Cluster)"
+date_modified: 2026-09-02
 author: cladkyimaffin-hue
-purpose: "Безопасное переименование ноды Proxmox с переносом конфигураций виртуальных машин"
 status: "completed"
-related_files: []
+# === КОНТЕКСТ СИСТЕМЫ ===
+target_system: "Proxmox VE Node (Debian Linux)"
+environment: "production"
+# === БЫСТРАЯ КЛАССИФИКАЦИЯ ===
+category: "setup"
+severity: "high"
+problem: "Необходимость корректного изменения hostname узла Proxmox после установки без нарушения работы кластера и SSL-сертификатов."
+solution: "Использование утилиты `pvenode` для смены имени, обновление `/etc/hosts` и `/etc/hostname` с последующей перезагрузкой."
+root_cause: "Прямое редактирование только файлов конфигурации без использования инструментов Proxmox приводит к рассинхронизации и ошибкам SSL."
+# === AI-СПЕЦИФИЧНЫЕ ПОЛЯ ===
+ai_summary: "Инструкция по безопасному переименованию узла Proxmox VE. Описывает использование `pvenode set`, правку системных файлов и перегенерацию сертификатов."
+key_takeaways:
+  - "Имя узла должно быть FQDN (например, pve01.krnn.ru)."
+  - "После смены имени требуется перезагрузка узла для применения изменений во всех службах."
+dont_repeat:
+  - "Не предлагать изменение hostname только через `/etc/hostname` или `hostnamectl` без использования `pvenode set` и обновления `/etc/hosts`."
+  - "Не выполнять переименование узла, если он уже является частью активного кластера (требуется выход из кластера)."
+assumptions:
+  - "Узел еще не добавлен в кластер, или кластер временно остановлен для обслуживания."
+# === АРТЕФАКТЫ ===
+commands: |
+  # Смена имени узла
+  pvenode set pve01.krnn.ru
+  # Обновление /etc/hosts (пример)
+  # 192.168.202.121 pve01.krnn.ru pve01
+  # Перезагрузка
+  reboot
+config_snippets:
+  etc_hosts_example: |
+    127.0.0.1 localhost.localdomain localhost
+    192.168.202.121 pve01.krnn.ru pve01
+urls: []
+# === СВЯЗИ ===
+related_files:
+  - "INDEX.md"
+  - "Скрипт pstInstal после установки Proxmox.md"
+depends_on: []
+superseded_by: ""
 tags:
-  - ProxmoxVE
-  - Administration
-  - Hostname
-  - Troubleshooting
+  - "ProxmoxVE"
+  - "Configuration"
+  - "Hostname"
+# === ВРЕМЕННОЙ КОНТЕКСТ ===
+last_incident: 2026-08-30
+next_review: 2026-12-01
+valid_until: 2027-01-01
+# === ОТВЕТСТВЕННОСТЬ ===
+reviewer: "cladkyimaffin-hue"
+approval_status: "approved"
 ---
 ### USER
 Поменять имя устройства на pve01
