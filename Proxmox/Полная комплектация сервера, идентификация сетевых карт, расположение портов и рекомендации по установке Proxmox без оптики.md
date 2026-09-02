@@ -1,18 +1,62 @@
 ---
+# === БАЗОВАЯ ИНФОРМАЦИЯ ===
 date_created: 2026-08-30
-target_system: "Huawei FusionServer 2288H V5 (H22H-05-S8AFF), Proxmox VE"
+date_modified: 2026-09-02
 author: cladkyimaffin-hue
-purpose: "Описание аппаратной конфигурации, маппинг сетевых портов (Intel X722/X710) и рекомендации по подключению через DAC-кабели без использования оптики"
 status: "completed"
+# === КОНТЕКСТ СИСТЕМЫ ===
+target_system: "Huawei FusionServer 2288H V5 (H22H-05-S8AFF), Proxmox VE"
+environment: "production"
+# === БЫСТРАЯ КЛАССИФИКАЦИЯ ===
+category: "documentation"
+severity: "medium"
+problem: "Необходимость корректной идентификации сетевых портов (Intel X722/X710) и организации 10G-подключения без использования оптических трансиверов."
+solution: "Использование пассивных DAC-кабелей (SFP+) для бортовых портов 10GE, маппинг портов LOM1-LOM4 и SLOT3 для корректной настройки сетей Proxmox."
+root_cause: "Сервер поставляется без оптических трансиверов, а попытка использования медных модулей 10GBASE-T в портах X722 приводит к нестабильной работе."
+# === AI-СПЕЦИФИЧНЫЕ ПОЛЯ ===
+ai_summary: "Документ содержит сводную информацию о физической комплектации серверов Huawei 2288H V5, точный маппинг сетевых интерфейсов ОС (LOM1-4, SLOT3) к физическим портам на задней панели и рекомендации по использованию DAC-кабелей для 10G-подключений."
+key_takeaways:
+  - "Бортовая карта Intel X722 предоставляет 2x10G SFP+ (LOM1, LOM2) и 2x1G RJ45 (LOM3, LOM4)."
+  - "Дополнительная карта Intel X710 в SLOT3 предоставляет 2x10G SFP+."
+  - "Для 10G-подключений без оптики критически важно использовать пассивные DAC-кабели (SFP+ to SFP+)."
+dont_repeat:
+  - "Не предлагать использование оптических модулей 10GBASE-T (RJ45) в SFP+ портах чипа Intel X722 из-за несовместимости."
+assumptions:
+  - "Для управления используется выделенный порт iBMC (Mgmt)."
+# === АРТЕФАКТЫ ===
+commands: |
+  # Проверка сетевых интерфейсов в Linux/Proxmox
+  ip link show
+  ethtool eth0
+config_snippets:
+  port_mapping: |
+    LOM1: X722 10GbE SFP+ (Левый 10GE)
+    LOM2: X722 10GbE SFP+ (Правый 10GE)
+    LOM3: X722 1GbE (Порт 1 GE)
+    LOM4: X722 1GbE (Порт 2 GE)
+    SLOT3 Порт 1: X710 10GbE SFP+
+    SLOT3 Порт 2: X710 10GbE SFP+
+urls: []
+# === СВЯЗИ ===
 related_files:
-  - "Железа серверов подборка коммутаторов.md"
+  - "INDEX.md"
+  - "hardware-spec.md"
+depends_on: []
+superseded_by: ""
 tags:
-  - Hardware
-  - Huawei-2288H-V5
-  - Intel-X722
-  - Intel-X710
-  - DAC-cable
-  - ProxmoxVE
+  - "Hardware"
+  - "Huawei-2288H-V5"
+  - "Intel-X722"
+  - "Intel-X710"
+  - "DAC-cable"
+  - "ProxmoxVE"
+# === ВРЕМЕННОЙ КОНТЕКСТ ===
+last_incident: 2026-08-30
+next_review: 2026-12-01
+valid_until: 2027-01-01
+# === ОТВЕТСТВЕННОСТЬ ===
+reviewer: "cladkyimaffin-hue"
+approval_status: "approved"
 ---
 # Полный чат: Сервер Huawei 2288H V5 (H22H-05-S8AFF)
 
