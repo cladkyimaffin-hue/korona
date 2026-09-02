@@ -1,16 +1,63 @@
 ---
+# === БАЗОВАЯ ИНФОРМАЦИЯ ===
 date_created: 2026-08-30
-target_system: "Proxmox VE 8.2.2 (Cluster: pve01, pve02 + QDevice)"
+date_modified: 2026-09-02
 author: cladkyimaffin-hue
-purpose: "Разбор интерфейса Proxmox VE (Datacenter, HA) и принципов работы кворума в двухузловом кластере"
 status: "completed"
+# === КОНТЕКСТ СИСТЕМЫ ===
+target_system: "Proxmox VE Cluster (pve01, pve02) + Debian QDevice Host"
+environment: "production"
+# === БЫСТРАЯ КЛАССИФИКАЦИЯ ===
+category: "setup"
+severity: "critical"
+problem: "Кластер из двух узлов теряет кворум при сетевом разделении, что блокирует HA и управление."
+solution: "Создание кластера и добавление независимого QDevice на третьем хосте для обеспечения математического кворума (3 голоса)."
+root_cause: "Четное количество узлов (2) не может обеспечить кворум (N/2 + 1) при потере связи между ними."
+# === AI-СПЕЦИФИЧНЫЕ ПОЛЯ ===
+ai_summary: "Пошаговая инструкция по объединению двух серверов Proxmox в кластер и настройке Corosync QDevice на отдельном хосте. Описывает установку пакетов, настройку SSH и проверку статуса кворума."
+key_takeaways:
+  - "QDevice должен находиться на независимом третьем хосте (не на pve01 или pve02)."
+  - "После настройки Expected votes становится 3, Quorum = 2, что позволяет кластеру выживать при потере 1 узла."
+dont_repeat:
+  - "Не предлагать команду `pvecm add qdevice <IP>` — она устарела и вызывает ошибку 'too many arguments'. Использовать `pvecm qdevice setup <IP>`."
+  - "Не предлагать создание кластера из 2 нод без QDevice или третьего узла для production-среды."
+assumptions:
+  - "Хост QDevice имеет статический IP и доступен по TCP порту 5403 с узлов Proxmox."
+# === АРТЕФАКТЫ ===
+commands: |
+  # На хосте QDevice
+  apt update && apt install -y corosync-qnetd
+  systemctl enable --now corosync-qnetd
+  # На узлах Proxmox
+  apt update && apt install -y corosync-qdevice
+  # Инициализация на pve01
+  pvecm qdevice setup 192.168.202.251
+  # Проверка
+  pvecm status
+config_snippets:
+  expected_status: |
+    Expected votes: 3
+    Quorum: 2
+    Flags: Quorate Qdevice
+urls: []
+# === СВЯЗИ ===
 related_files:
+  - "INDEX.md"
   - "Добавить qdevice.md"
+depends_on: []
+superseded_by: ""
 tags:
-  - ProxmoxVE
-  - HighAvailability
-  - QDevice
-  - Cluster
+  - "ProxmoxVE"
+  - "QDevice"
+  - "Corosync"
+  - "Quorum"
+# === ВРЕМЕННОЙ КОНТЕКСТ ===
+last_incident: 2026-08-30
+next_review: 2026-12-01
+valid_until: 2027-01-01
+# === ОТВЕТСТВЕННОСТЬ ===
+reviewer: "cladkyimaffin-hue"
+approval_status: "approved"
 ---
 ### USER
 Нужно два нода Proxmox pve01 pve02 обьединить
