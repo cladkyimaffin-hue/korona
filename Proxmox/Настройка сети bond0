@@ -1,3 +1,83 @@
+---
+# === БАЗОВАЯ ИНФОРМАЦИЯ ===
+date_created: 2026-09-02
+date_modified: 2026-09-02
+author: cladkyimaffin-hue
+status: "completed"
+# === КОНТЕКСТ СИСТЕМЫ ===
+target_system: "Proxmox VE 8.x/9.x, Huawei 2288H V5 (Intel X722/X710), MikroTik/TP-Link Switches"
+environment: "production"
+# === БЫСТРАЯ КЛАССИФИКАЦИЯ ===
+category: "setup"
+severity: "high"
+problem: "Необходимость обеспечения отказоустойчивости и агрегации пропускной способности для трафика Ceph и виртуальных машин, чтобы избежать единой точки отказа (SPOF) на уровне сети."
+solution: "Настройка программного объединения каналов (Linux Bonding) в режиме 802.3ad (LACP) в файле `/etc/network/interfaces` с соответствующей настройкой агрегации на коммутаторе."
+root_cause: "Использование одиночного физического линка 10G создает риск потери связи с узлом и деградации кластера Ceph при обрыве кабеля или сбое порта."
+# === AI-СПЕЦИФИЧНЫЕ ПОЛЯ ===
+ai_summary: "Инструкция по настройке сетевого бондинга (bond0) в Proxmox VE для агрегации двух 10G SFP+ интерфейсов. Описывает конфигурацию mode 4 (802.3ad LACP), привязку IP-адреса к интерфейсу bond0 и требования к настройке коммутатора."
+key_takeaways:
+  - "Режим 802.3ad (LACP, mode 4) требует обязательной настройки агрегации портов (LAG/EtherChannel) на стороне коммутатора."
+  - "IP-адрес и VLAN назначаются только на интерфейс bond0, физические интерфейсы-слэйвы (например, eno1, eno2) должны быть без IP."
+  - "MTU должен быть строго одинаковым на физических портах, интерфейсе bond0 и портах коммутатора (например, MTU 9000 для Jumbo Frames в сети Ceph)."
+dont_repeat:
+  - "Не предлагать режим balance-rr (mode 0) или active-backup (mode 1) для агрегации пропускной способности, если коммутатор поддерживает LACP."
+  - "Не назначать IP-адреса или VLAN-теги напрямую на физические интерфейсы-слэйвы (slave interfaces)."
+  - "Не забывать указывать параметр `bond_miimon 100` для мониторинга состояния линка."
+assumptions:
+  - "Используются два физических порта 10G SFP+ (например, LOM1 и LOM2 или порты из SLOT3)."
+  - "Коммутатор поддерживает стандарт IEEE 802.3ad (LACP)."
+# === АРТЕФАКТЫ ===
+commands: |
+  # Проверка статуса бондинга
+  cat /proc/net/bonding/bond0
+  # Проверка состояния интерфейсов
+  ip link show
+  # Применение настроек сети (Proxmox)
+  ifreload -a
+config_snippets:
+  network_interfaces_bond: |
+    auto eno1
+    iface eno1 inet manual
+        bond-master bond0
+
+    auto eno2
+    iface eno2 inet manual
+        bond-master bond0
+
+    auto bond0
+    iface bond0 inet static
+        address 192.168.202.10/24
+        gateway 192.168.202.1
+        bond-slaves eno1 eno2
+        bond-mode 802.3ad
+        bond-miimon 100
+        bond-lacp-rate 1
+        bond-xmit-hash-policy layer2+3
+        mtu 1500
+urls:
+  - "https://pve.proxmox.com/wiki/Network_Configuration#_link_aggregation_bond"
+# === СВЯЗИ ===
+related_files:
+  - "INDEX.md"
+  - "Полная комплектация сервера, идентификация сетевых карт, расположение портов и рекомендации по установке Proxmox без оптики.md"
+  - "Железа серверов подборка коммутаторов.md"
+depends_on:
+  - "Полная комплектация сервера, идентификация сетевых карт, расположение портов и рекомендации по установке Proxmox без оптики.md"
+superseded_by: ""
+tags:
+  - "ProxmoxVE"
+  - "Networking"
+  - "Bonding"
+  - "LACP"
+  - "HighAvailability"
+# === ВРЕМЕННОЙ КОНТЕКСТ ===
+last_incident: 2026-09-02
+next_review: 2026-12-01
+valid_until: 2027-01-01
+# === ОТВЕТСТВЕННОСТЬ ===
+reviewer: "cladkyimaffin-hue"
+approval_status: "approved"
+---
 ### USER
 https://github.com/cladkyimaffin-hue/korona/tree/7e61d0c471c64f881b35a5f2d02881fd6535af07/Proxmox
 Теперь нужно создать ceph ha и начать заливать вм
