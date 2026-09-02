@@ -1,14 +1,58 @@
 ---
+# === БАЗОВАЯ ИНФОРМАЦИЯ ===
 date_created: 2026-08-30
-target_system: "Proxmox VE (Post-Installation)"
+date_modified: 2026-09-02
 author: cladkyimaffin-hue
-purpose: "Пояснение финального сообщения установщика и рекомендуемые первые действия"
 status: "completed"
-related_files: []
+# === КОНТЕКСТ СИСТЕМЫ ===
+target_system: "Proxmox VE 8.x/9.x"
+environment: "production"
+# === БЫСТРАЯ КЛАССИФИКАЦИЯ ===
+category: "optimization"
+severity: "medium"
+problem: "Ручное выполнение пост-установочных задач (обновление репозиториев, отключение nag-окна, установка пакетов) подвержено ошибкам."
+solution: "Автоматизированный Bash-скрипт для первичной настройки свежеустановленного узла Proxmox VE."
+root_cause: "Отсутствие стандартизированного процесса начальной настройки сервера."
+# === AI-СПЕЦИФИЧНЫЕ ПОЛЯ ===
+ai_summary: "Содержит Bash-скрипт для автоматизации пост-установочных действий: переключение на no-subscription репозиторий, установка необходимых утилит (htop, nano, bash-completion), настройка часового пояса и отключение enterprise-рекламы."
+key_takeaways:
+  - "Скрипт должен запускаться сразу после первой загрузки до добавления узла в кластер."
+  - "Обязательное отключение или комментирование `pve-enterprise.list` для предотвращения ошибок `apt update`."
+dont_repeat:
+  - "Не предлагать ручное редактирование `/etc/apt/sources.list.d/pve-enterprise.list` без его предварительного комментирования или удаления."
+  - "Не предлагать использование сторонних скриптов 'no-nag' из ненадежных источников; использовать штатные методы или проверенные скрипты."
+assumptions:
+  - "Сервер имеет доступ в интернет для загрузки пакетов."
+# === АРТЕФАКТЫ ===
+commands: |
+  # Запуск скрипта после загрузки на сервер
+  chmod +x pstInstal.sh
+  ./pstInstal.sh
+config_snippets:
+  repo_fix: |
+    # Закомментировать enterprise репозиторий
+    sed -i 's/^deb/#deb/' /etc/apt/sources.list.d/pve-enterprise.list
+    # Добавить no-subscription репозиторий
+    echo "deb http://download.proxmox.com/debian/pve bookworm pve-no-subscription" > /etc/apt/sources.list.d/pve-no-subscription.list
+urls: []
+# === СВЯЗИ ===
+related_files:
+  - "INDEX.md"
+  - "Поменять имя устройства на pve01.md"
+depends_on: []
+superseded_by: ""
 tags:
-  - ProxmoxVE
-  - Installation
-  - BestPractices
+  - "ProxmoxVE"
+  - "Automation"
+  - "Bash"
+  - "Setup"
+# === ВРЕМЕННОЙ КОНТЕКСТ ===
+last_incident: 2026-08-30
+next_review: 2026-12-01
+valid_until: 2027-01-01
+# === ОТВЕТСТВЕННОСТЬ ===
+reviewer: "cladkyimaffin-hue"
+approval_status: "approved"
 ---
 ### ASSISTANT
 Это диалоговое окно в стиле whiptail из скрипта пост‑установки/настройки Proxmox VE. Скрипт обнаружил, что apt‑репозиторий `pve-enterprise` уже настроен на вашем хосте, и спрашивает, как с ним поступить.
