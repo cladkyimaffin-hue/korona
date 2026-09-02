@@ -1,17 +1,65 @@
 ---
+# === БАЗОВАЯ ИНФОРМАЦИЯ ===
 date_created: 2026-08-30
-target_system: "3x Proxmox VE Servers, Ceph Cluster"
+date_modified: 2026-09-02
 author: cladkyimaffin-hue
-purpose: "Архитектурные рекомендации по конфигурации дисков (отдельные OSD вместо локального RAID1 для 7TB дисков) и развертывание 3-узлового кластера Proxmox + Ceph"
 status: "completed"
+# === КОНТЕКСТ СИСТЕМЫ ===
+target_system: "3x Proxmox VE Servers (Huawei 2288H V5), Ceph Cluster"
+environment: "production"
+# === БЫСТРАЯ КЛАССИФИКАЦИЯ ===
+category: "setup"
+severity: "high"
+problem: "Необходимость корректной инициализации гиперконвергентного кластера с разнородными дисками (2×480 ГБ под ОС, 2×7 ТБ под данные) без потери доступной емкости."
+solution: "Установка ОС на зеркало 480 ГБ, настройка Ceph с созданием отдельных OSD для каждого 7 ТБ диска (без локального RAID), обеспечение кворума через QDevice."
+root_cause: "Стандартный инсталлятор Proxmox не управляет дополнительными дисками, а создание локального RAID для данных снижает емкость на 50% и конфликтует с репликацией Ceph."
+# === AI-СПЕЦИФИЧНЫЕ ПОЛЯ ===
+ai_summary: "Комплексное руководство по развертыванию 3-узлового кластера Proxmox с Ceph. Описывает правильную дисковую топологию (системное зеркало + отдельные OSD), настройку сетей и критические параметры пулов (Size=2, Min Size=1) для среды с 2 активными нодами данных."
+key_takeaways:
+  - "Диски 7 ТБ добавляются как независимые OSD, а не в локальный RAID."
+  - "Для 2 нод с данными параметр Size пула должен быть 2, а Min Size = 1."
+  - "Оперативная память в Ceph не объединяется, она остается строго локальной для каждой ноды."
+dont_repeat:
+  - "Не предлагать создание локального зеркала (RAID1/ZFS mirror) из 7 ТБ дисков данных."
+  - "Не предлагать размещение полноценного Ceph Monitor на хосте QDevice, если он используется только для кворума."
+assumptions:
+  - "Дисковые контроллеры настроены в режим HBA/JBOD (Passthrough)."
+  - "Между узлами существует выделенный 10G линк для Ceph Cluster network."
+# === АРТЕФАКТЫ ===
+commands: |
+  # Создание ZFS pool (альтернатива Ceph, если применимо)
+  zpool create -f -o ashift=12 tank mirror /dev/sdX /dev/sdY
+  # Добавление хранилища в Proxmox
+  pvesm add zfspool tank -pool tank -content images,rootdir,iso,vztmpl,backup
+config_snippets:
+  ceph_pool_rules: |
+    Name: ceph-vm
+    Size: 2
+    Min Size: 1
+    PGs: 128 (или autoscale)
+    Crush Rule: host (исключая QDevice, так как там нет OSD)
+urls: []
+# === СВЯЗИ ===
 related_files:
+  - "INDEX.md"
   - "Создание Ceph №1.md"
+  - "Добавить qdevice.md"
+depends_on:
+  - "hardware-spec.md"
+superseded_by: ""
 tags:
-  - ProxmoxVE
-  - Ceph
-  - Storage
-  - Architecture
-  - OSD
+  - "ProxmoxVE"
+  - "Ceph"
+  - "Storage"
+  - "Architecture"
+  - "OSD"
+# === ВРЕМЕННОЙ КОНТЕКСТ ===
+last_incident: 2026-08-30
+next_review: 2026-12-01
+valid_until: 2027-01-01
+# === ОТВЕТСТВЕННОСТЬ ===
+reviewer: "cladkyimaffin-hue"
+approval_status: "approved"
 ---
 # Полный чат: Настройка Proxmox VE + Ceph кластера
 
