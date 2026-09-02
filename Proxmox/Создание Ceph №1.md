@@ -1,17 +1,67 @@
 ---
+# === БАЗОВАЯ ИНФОРМАЦИЯ ===
 date_created: 2026-08-30
-target_system: "Proxmox VE Cluster with Ceph Storage"
+date_modified: 2026-09-02
 author: cladkyimaffin-hue
-purpose: "Теория производительности Ceph (WAL/DB на NVMe) и пошаговое развертывание кластера Ceph + HA"
 status: "completed"
+# === КОНТЕКСТ СИСТЕМЫ ===
+target_system: "Proxmox VE Cluster, Ceph Quincy/Reef"
+environment: "production"
+# === БЫСТРАЯ КЛАССИФИКАЦИЯ ===
+category: "setup"
+severity: "critical"
+problem: "Необходимость инициализации гиперконвергентного хранилища Ceph на дисках данных (7 ТБ) для обеспечения общего хранилища ВМ."
+solution: "Пошаговая установка Ceph, создание MON/MGR на узлах кластера, инициализация OSD на чистых дисках и создание пула с параметрами Size=2, Min Size=1."
+root_cause: "Отсутствие общего хранилища делает невозможным использование Live Migration и High Availability (HA)."
+# === AI-СПЕЦИФИЧНЫЕ ПОЛЯ ===
+ai_summary: "Руководство по первичному развертыванию Ceph в Proxmox. Описывает установку пакетов, назначение ролей MON/MGR, создание OSD из дисков 7 ТБ и настройку пула репликации для 2-нодовой конфигурации с QDevice."
+key_takeaways:
+  - "MON и MGR создаются только на физических узлах с данными (pve01, pve02), но не на хосте QDevice."
+  - "Каждый диск 7 ТБ инициализируется как отдельный OSD (без аппаратного или программного RAID)."
+  - "Для 2 нод с данными параметр Size пула должен быть 2, а Min Size = 1."
+dont_repeat:
+  - "Не предлагать размещение полноценного Ceph Monitor на хосте QDevice."
+  - "Не предлагать создание локального зеркала (RAID1/ZFS mirror) из 7 ТБ дисков перед добавлением их в Ceph."
+  - "Не использовать Size=3 для пула, если физических узлов с дисками всего два."
+assumptions:
+  - "Диски находятся в режиме HBA/JBOD."
+  - "Между узлами настроена выделенная сеть для Ceph Cluster traffic."
+# === АРТЕФАКТЫ ===
+commands: |
+  # Установка Ceph через CLI (альтернатива GUI)
+  pveceph install
+  # Инициализация монитора на узле
+  pveceph init --network 192.168.202.0/24
+  # Создание OSD на конкретном диске
+  ceph orch daemon add osd pve01:/dev/sdX
+config_snippets:
+  pool_config: |
+    Name: ceph-vm
+    Size: 2
+    Min Size: 1
+    PGs: 128 (или autoscale)
+    Application: rbd
+urls: []
+# === СВЯЗИ ===
 related_files:
+  - "INDEX.md"
+  - "Установка Proxmox VE на 3 сервера (зеркало 2×480 ГБ + 2×7 ТБ), создание кластера, настройка Ceph, распределение сетей, рекомендации по дискам и сети.md"
   - "pve01+pve02+Qdevice.md"
+depends_on:
+  - "pve01+pve02+Qdevice.md"
+superseded_by: ""
 tags:
-  - ProxmoxVE
-  - Ceph
-  - HighAvailability
-  - Storage
-  - NVMe
+  - "ProxmoxVE"
+  - "Ceph"
+  - "Storage"
+  - "OSD"
+# === ВРЕМЕННОЙ КОНТЕКСТ ===
+last_incident: 2026-08-30
+next_review: 2026-12-01
+valid_until: 2027-01-01
+# === ОТВЕТСТВЕННОСТЬ ===
+reviewer: "cladkyimaffin-hue"
+approval_status: "approved"
 ---
 ### USER
 В ceph кластере для osd  обязательно надо выносить бд на отдельный nvme диск иначе все будет жутко тормозить.если делать на HDD из 3 дисков без выноса бд, то скорость будет сильно меньше чем просто использовать один диск)
