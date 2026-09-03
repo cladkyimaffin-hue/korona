@@ -5,90 +5,107 @@ date_modified: 2026-09-03
 author: cladkyimaffin-hue
 status: "completed"
 # === КОНТЕКСТ СИСТЕМЫ ===
-target_system: "Proxmox VE Cluster (pve01, pve02 + QDevice), Ceph, Huawei 2288H V5"
+target_system: "Proxmox VE Cluster (pve01: 192.168.202.121, pve02: 192.168.202.179), Ceph Quincy/Reef, Huawei 2288H V5"
 environment: "production"
 # === БЫСТРАЯ КЛАССИФИКАЦИЯ ===
 category: "setup"
-severity: "high"
-problem: "Ошибки планирования дисковой подсистемы Ceph до развертывания приводят к неравномерной загрузке OSD, преждевременному переходу пула в `HEALTH_WARN` и потере полезной емкости."
-solution: "Стратегия планирования OSD с разделением дисков по Device Classes, созданием изолированных CRUSH Rules, корректным расчетом PG и настройкой порогов утилизации (nearfull/backfillfull/full)."
-root_cause: "Разнородные диски в одном пуле (например, 4 ТБ и 7 ТБ) создают эффект «деревянной бочки» — пул упирается в лимит самого маленького OSD, блокируя использование емкости старших дисков."
+severity: "critical"
+problem: "После планирования дисковой подсистемы и создания кластера Ceph необходимо физически инициализировать OSD на дисках данных (7 ТБ) каждой ноды для формирования распределенного хранилища."
+solution: "Пошаговая инициализация OSD на pve01 и pve02 через `pveceph osd create` (или `ceph orch daemon add osd`), проверка статуса через `ceph osd tree` и `ceph -s`, ожидание перехода PG в состояние `active+clean`."
+root_cause: "Без созданных OSD кластер Ceph не может хранить данные, а ВМ не могут быть размещены на общем хранилище."
 # === AI-СПЕЦИФИЧНЫЕ ПОЛЯ ===
-ai_summary: "Руководство по предварительному планированию дисковой подсистемы Ceph перед созданием OSD. Описывает стратегию разделения дисков по Device Classes, расчет Placement Groups (PG), проектирование CRUSH Rules для изоляции пулов и настройку порогов утилизации кластера."
+ai_summary: "Практическое руководство по установке OSD на физических дисках 7 ТБ нод pve01 и pve02. Описывает подготовку дисков (wipefs), создание OSD через CLI/GUI, назначение Device Class, проверку статуса и ожидание завершения ребалансировки."
 key_takeaways:
-  - "Каждый физический диск должен быть отдельным OSD — никакого локального RAID (RAID1/RAID5/RAID10) из дисков данных."
-  - "Для разнородных дисков (например, 4 ТБ и 7 ТБ) обязательно создаются отдельные Device Classes и CRUSH Rules, чтобы избежать эффекта «деревянной бочки»."
-  - "Количество PG рассчитывается по формуле: `PG = (OSD_count × 100) / replica_count`, с округлением до ближайшей степени двойки."
-  - "Для 2 нод с данными параметр Size пула = 2, Min Size = 1; Size = 3 физически невозможен без третьей ноды с OSD."
+  - "Каждый физический диск 7 ТБ инициализируется как отдельный OSD — на pve01 и pve02 будет по 2 OSD (итого 4 OSD в кластере)."
+  - "Перед созданием OSD диск должен быть полностью очищен от старых подписей: `wipefs -a /dev/sdX`."
+  - "После создания OSD необходимо вручную назначить Device Class (например, `ssd-7tb`), если используется разнородная конфигурация дисков."
+  - "Кластер считается готовым к работе, когда все PG находятся в состоянии `active+clean` и `ceph -s` показывает `HEALTH_OK`."
 dont_repeat:
-  - "Не предлагать создание локального зеркала (RAID1/ZFS mirror) из дисков данных перед добавлением их в Ceph — это дублирует репликацию и снижает емкость на 50%."
-  - "Не предлагать использование одного общего пула для дисков разного объема без CRUSH Rules — это гарантированная потеря емкости."
-  - "Не предлагать вынос WAL/DB на отдельный NVMe, если основные диски — SSD (RocksDB и так работает быстро на SSD, вынос нужен только для HDD)."
-  - "Не использовать Size=3 для пула, если физических узлов с OSD всего два."
-  - "Не оставлять дефолтные значения `mon_osd_nearfull_ratio` (0.85) без проверки — для SSD с высокой утилизацией это может быть слишком рано."
+  - "Не предлагать создание OSD на системных дисках 480 ГБ (они заняты под ОС и local-lvm)."
+  - "Не предлагать объединение дисков 7 ТБ в локальный RAID перед созданием OSD — Ceph сам обеспечивает репликацию."
+  - "Не предлагать использование `ceph-deploy` или устаревших методов — в Proxmox VE 8.x/9.x используется `cephadm` (orchestrator)."
+  - "Не предлагать пропуск `wipefs` — оставшиеся подписи (LVM, ZFS, старые Ceph) вызывают ошибки создания OSD."
+  - "Не начинать создание ВМ до перехода всех PG в `active+clean` — это приведет к ошибкам записи."
 assumptions:
-  - "Дисковые контроллеры серверов Huawei 2288H V5 работают в режиме HBA/JBOD (Passthrough)."
-  - "Между узлами существует выделенный 10G линк для Ceph Cluster network."
-  - "Все OSD на ноде имеют одинаковый тип носителя (SSD или HDD), смешивание в одном пуле не допускается."
+  - "Дисковые контроллеры серверов работают в режиме HBA/JBOD (Passthrough)."
+  - "Ceph Monitor и Manager уже установлены на pve01 и pve02 (см. `Создание Ceph №1.md`)."
+  - "Сеть Ceph Cluster network настроена (см. `Настройка сети bond0.md`)."
+  - "Диски 7 ТБ видны в системе как `/dev/sdX` (например, `/dev/sdb`, `/dev/sdc`)."
 # === АРТЕФАКТЫ ===
 commands: |
-  # Просмотр дерева OSD и хостов
+  # Подготовка диска (очистка от старых подписей)
+  wipefs -a /dev/sdb
+  wipefs -a /dev/sdc
+  
+  # Создание OSD через CLI Proxmox (предпочтительный метод)
+  pveceph osd create /dev/sdb
+  pveceph osd create /dev/sdc
+  
+  # Альтернатива через cephadm orchestrator
+  ceph orch daemon add osd pve01:/dev/sdb
+  ceph orch daemon add osd pve01:/dev/sdc
+  ceph orch daemon add osd pve02:/dev/sdb
+  ceph orch daemon add osd pve02:/dev/sdc
+  
+  # Назначение Device Class (для разнородных дисков)
+  ceph osd crush set-device-class ssd-7tb osd.0 osd.1 osd.2 osd.3
+  
+  # Проверка статуса OSD и кластера
   ceph osd tree
-  # Назначение Device Class OSD вручную
-  ceph osd crush set-device-class ssd-7tb osd.0 osd.1
-  ceph osd crush set-device-class ssd-4tb osd.2 osd.3
-  # Создание CRUSH Rule для конкретного класса
-  ceph osd crush rule create-replicated rule-7tb default host ssd-7tb
-  # Создание пула с привязкой к правилу
-  ceph osd pool create ceph-vm-bulk 128 128 replicated rule-7tb
-  # Расчет PG (встроенный калькулятор)
+  ceph -s
   ceph osd pool autoscale-status
-  # Настройка порогов утилизации
-  ceph osd set-nearfull-ratio 0.80
-  ceph osd set-backfillfull-ratio 0.90
-  ceph osd set-full-ratio 0.95
+  
+  # Ожидание завершения ребалансировки
+  ceph progress
+  ceph -w
 config_snippets:
-  crush_rule_example: |
-    # CRUSH Rule для пула только на 7 ТБ SSD
-    rule rule-7tb {
-        id 1
-        type replicated
-        min_size 1
-        max_size 10
-        step take default class ssd-7tb
-        step chooseleaf firstn 0 type host
-        step emit
-    }
-  pg_calculation_formula: |
-    # Формула расчета PG
-    Total PGs = ((OSD_count * 100) / replica_count)
-    # Пример: 4 OSD, Size=2 → (4*100)/2 = 200 → округляем до 256 (ближайшая степень 2)
-    # Для пула на 2 OSD: (2*100)/2 = 100 → округляем до 128
-  utilization_ratios: |
-    # Рекомендуемые пороги для SSD-кластера
-    nearfull_ratio  = 0.80  # Предупреждение о скором заполнении
-    backfillfull_ratio = 0.90  # Запрет новых записей на OSD, начало backfill
-    full_ratio      = 0.95  # Полная блокировка записи на OSD
+  expected_osd_tree: |
+    # Ожидаемый вывод ceph osd tree после установки
+    ID   CLASS  WEIGHT   TYPE NAME       STATUS  REWEIGHT  PRI-AFF
+    -1         28.00000  root default
+    -3         14.00000      host pve01
+     0  ssd-7tb  7.00000          osd.0   up     1.00000  1.00000
+     1  ssd-7tb  7.00000          osd.1   up     1.00000  1.00000
+    -5         14.00000      host pve02
+     2  ssd-7tb  7.00000          osd.2   up     1.00000  1.00000
+     3  ssd-7tb  7.00000          osd.3   up     1.00000  1.00000
+  health_ok_output: |
+    # Ожидаемый вывод ceph -s после завершения
+    cluster:
+      id:     xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+      health: HEALTH_OK
+    services:
+      mon: 2 daemons, quorum pve01,pve02
+      mgr: pve01(active), standbys: pve02
+      osd: 4 osds: 4 up (since ...), 4 in (since ...)
+    data:
+      pools:   1 pools, N pgs
+      objects: 0 objects, 0 B
+      usage:   ...
+      pgs:     N pgs active+clean
 urls:
-  - "https://docs.ceph.com/en/latest/rados/operations/placement-groups/"
   - "https://pve.proxmox.com/wiki/Ceph_Server"
+  - "https://docs.ceph.com/en/latest/cephadm/osd/"
 # === СВЯЗИ ===
 related_files:
   - "INDEX.md"
   - "Создание Ceph №1.md"
-  - "Установка Proxmox VE на 3 сервера (зеркало 2×480 ГБ + 2×7 ТБ), создание кластера, настройка Ceph, распределение сетей, рекомендации по дискам и сети.md"
+  - "Настройка Ceph Планирование Дисков OSD.md"
   - "hardware-spec.md"
+  - "Настройка сети bond0.md"
 depends_on:
-  - "hardware-spec.md"
   - "Создание Ceph №1.md"
+  - "Настройка Ceph Планирование Дисков OSD.md"
+  - "Настройка сети bond0.md"
 superseded_by: ""
 tags:
   - "ProxmoxVE"
   - "Ceph"
   - "OSD"
-  - "CRUSH"
   - "Storage"
-  - "Planning"
+  - "Setup"
+  - "pve01"
+  - "pve02"
 # === ВРЕМЕННОЙ КОНТЕКСТ ===
 last_incident: 2026-09-03
 next_review: 2026-12-01
