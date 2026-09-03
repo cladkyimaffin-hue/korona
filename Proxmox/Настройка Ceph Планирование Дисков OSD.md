@@ -1,3 +1,102 @@
+---
+# === БАЗОВАЯ ИНФОРМАЦИЯ ===
+date_created: 2026-09-03
+date_modified: 2026-09-03
+author: cladkyimaffin-hue
+status: "completed"
+# === КОНТЕКСТ СИСТЕМЫ ===
+target_system: "Proxmox VE Cluster (pve01, pve02 + QDevice), Ceph, Huawei 2288H V5"
+environment: "production"
+# === БЫСТРАЯ КЛАССИФИКАЦИЯ ===
+category: "setup"
+severity: "high"
+problem: "Ошибки планирования дисковой подсистемы Ceph до развертывания приводят к неравномерной загрузке OSD, преждевременному переходу пула в `HEALTH_WARN` и потере полезной емкости."
+solution: "Стратегия планирования OSD с разделением дисков по Device Classes, созданием изолированных CRUSH Rules, корректным расчетом PG и настройкой порогов утилизации (nearfull/backfillfull/full)."
+root_cause: "Разнородные диски в одном пуле (например, 4 ТБ и 7 ТБ) создают эффект «деревянной бочки» — пул упирается в лимит самого маленького OSD, блокируя использование емкости старших дисков."
+# === AI-СПЕЦИФИЧНЫЕ ПОЛЯ ===
+ai_summary: "Руководство по предварительному планированию дисковой подсистемы Ceph перед созданием OSD. Описывает стратегию разделения дисков по Device Classes, расчет Placement Groups (PG), проектирование CRUSH Rules для изоляции пулов и настройку порогов утилизации кластера."
+key_takeaways:
+  - "Каждый физический диск должен быть отдельным OSD — никакого локального RAID (RAID1/RAID5/RAID10) из дисков данных."
+  - "Для разнородных дисков (например, 4 ТБ и 7 ТБ) обязательно создаются отдельные Device Classes и CRUSH Rules, чтобы избежать эффекта «деревянной бочки»."
+  - "Количество PG рассчитывается по формуле: `PG = (OSD_count × 100) / replica_count`, с округлением до ближайшей степени двойки."
+  - "Для 2 нод с данными параметр Size пула = 2, Min Size = 1; Size = 3 физически невозможен без третьей ноды с OSD."
+dont_repeat:
+  - "Не предлагать создание локального зеркала (RAID1/ZFS mirror) из дисков данных перед добавлением их в Ceph — это дублирует репликацию и снижает емкость на 50%."
+  - "Не предлагать использование одного общего пула для дисков разного объема без CRUSH Rules — это гарантированная потеря емкости."
+  - "Не предлагать вынос WAL/DB на отдельный NVMe, если основные диски — SSD (RocksDB и так работает быстро на SSD, вынос нужен только для HDD)."
+  - "Не использовать Size=3 для пула, если физических узлов с OSD всего два."
+  - "Не оставлять дефолтные значения `mon_osd_nearfull_ratio` (0.85) без проверки — для SSD с высокой утилизацией это может быть слишком рано."
+assumptions:
+  - "Дисковые контроллеры серверов Huawei 2288H V5 работают в режиме HBA/JBOD (Passthrough)."
+  - "Между узлами существует выделенный 10G линк для Ceph Cluster network."
+  - "Все OSD на ноде имеют одинаковый тип носителя (SSD или HDD), смешивание в одном пуле не допускается."
+# === АРТЕФАКТЫ ===
+commands: |
+  # Просмотр дерева OSD и хостов
+  ceph osd tree
+  # Назначение Device Class OSD вручную
+  ceph osd crush set-device-class ssd-7tb osd.0 osd.1
+  ceph osd crush set-device-class ssd-4tb osd.2 osd.3
+  # Создание CRUSH Rule для конкретного класса
+  ceph osd crush rule create-replicated rule-7tb default host ssd-7tb
+  # Создание пула с привязкой к правилу
+  ceph osd pool create ceph-vm-bulk 128 128 replicated rule-7tb
+  # Расчет PG (встроенный калькулятор)
+  ceph osd pool autoscale-status
+  # Настройка порогов утилизации
+  ceph osd set-nearfull-ratio 0.80
+  ceph osd set-backfillfull-ratio 0.90
+  ceph osd set-full-ratio 0.95
+config_snippets:
+  crush_rule_example: |
+    # CRUSH Rule для пула только на 7 ТБ SSD
+    rule rule-7tb {
+        id 1
+        type replicated
+        min_size 1
+        max_size 10
+        step take default class ssd-7tb
+        step chooseleaf firstn 0 type host
+        step emit
+    }
+  pg_calculation_formula: |
+    # Формула расчета PG
+    Total PGs = ((OSD_count * 100) / replica_count)
+    # Пример: 4 OSD, Size=2 → (4*100)/2 = 200 → округляем до 256 (ближайшая степень 2)
+    # Для пула на 2 OSD: (2*100)/2 = 100 → округляем до 128
+  utilization_ratios: |
+    # Рекомендуемые пороги для SSD-кластера
+    nearfull_ratio  = 0.80  # Предупреждение о скором заполнении
+    backfillfull_ratio = 0.90  # Запрет новых записей на OSD, начало backfill
+    full_ratio      = 0.95  # Полная блокировка записи на OSD
+urls:
+  - "https://docs.ceph.com/en/latest/rados/operations/placement-groups/"
+  - "https://pve.proxmox.com/wiki/Ceph_Server"
+# === СВЯЗИ ===
+related_files:
+  - "INDEX.md"
+  - "Создание Ceph №1.md"
+  - "Установка Proxmox VE на 3 сервера (зеркало 2×480 ГБ + 2×7 ТБ), создание кластера, настройка Ceph, распределение сетей, рекомендации по дискам и сети.md"
+  - "hardware-spec.md"
+depends_on:
+  - "hardware-spec.md"
+  - "Создание Ceph №1.md"
+superseded_by: ""
+tags:
+  - "ProxmoxVE"
+  - "Ceph"
+  - "OSD"
+  - "CRUSH"
+  - "Storage"
+  - "Planning"
+# === ВРЕМЕННОЙ КОНТЕКСТ ===
+last_incident: 2026-09-03
+next_review: 2026-12-01
+valid_until: 2027-01-01
+# === ОТВЕТСТВЕННОСТЬ ===
+reviewer: "cladkyimaffin-hue"
+approval_status: "approved"
+---
 ### USER
 ## КОНТЕКСТ ДЛЯ НОВОГО ЧАТА
 
