@@ -1,3 +1,113 @@
+---
+# === БАЗОВАЯ ИНФОРМАЦИЯ ===
+date_created: 2026-09-05
+date_modified: 2026-09-05
+author: cladkyimaffin-hue
+status: "completed"
+# === КОНТЕКСТ СИСТЕМЫ ===
+target_system: "Proxmox VE 8.x/9.x, Windows Server 2022 Standard (KVM/QEMU), Ceph RBD"
+environment: "production"
+# === БЫСТРАЯ КЛАССИФИКАЦИЯ ===
+category: "setup"
+severity: "high"
+problem: "Необходимость создания стандартизированного, оптимизированного и готового к быстрому клонированию шаблона Windows Server 2022 для развертывания новых виртуальных машин без повторной установки ОС и драйверов."
+solution: "Пошаговая установка Windows Server 2022 в KVM-ВМ с подключением VirtIO-драйверов, настройкой QEMU Guest Agent, UEFI+TPM, оптимизацией ОС и финальной очисткой через Sysprep перед конвертацией в шаблон."
+root_cause: "Ручная установка и настройка каждой новой Windows-ВМ занимает часы, приводит к дрейфу конфигураций и риску забыть критически важные драйверы VirtIO или Guest Agent."
+# === AI-СПЕЦИФИЧНЫЕ ПОЛЯ ===
+ai_summary: "Инструкция по созданию мастер-шаблона Windows Server 2022 в Proxmox VE. Охватывает выбор параметров ВМ (q35, OVMF, VirtIO SCSI), установку драйверов virtio-win (сетевые, диски, balloon, qxldod), настройку QEMU Guest Agent, оптимизацию ОС и подготовку через Sysprep перед конвертацией в шаблон."
+key_takeaways:
+  - "Обязательные параметры ВМ: Machine=q35, BIOS=OVMF (UEFI), CPU=host, SCSI Controller=VirtIO SCSI, Network=VirtIO (paravirtualized)."
+  - "Виртуальный TPM (swtpm) обязателен для Windows Server 2022 — без него установка не пройдет."
+  - "QEMU Guest Agent должен быть установлен и запущен внутри гостя — без него не работают HA, live migration, graceful shutdown и снимки."
+  - "Перед конвертацией в шаблон обязательно выполнить Sysprep с флагом Generalize, иначе клонированные ВМ будут иметь конфликт SID."
+dont_repeat:
+  - "Не использовать IDE или SATA для системного диска — только VirtIO SCSI с подключенным ISO virtio-win на этапе установки."
+  - "Не использовать machine type i440fx для новых Windows-ВМ — только q35 с UEFI."
+  - "Не создавать шаблон без выполнения Sysprep — это приведет к дублированию SID и проблемам в домене Active Directory."
+  - "Не устанавливать Windows без предварительного подключения ISO с драйверами VirtIO (virtio-win.iso) — установщик не увидит диск."
+  - "Не пропускать установку QEMU Guest Agent — без него Proxmox не сможет корректно управлять ВМ."
+  - "Не использовать E1000 или Realtek сетевые карты — только VirtIO (paravirtualized) для производительности."
+assumptions:
+  - "ISO-образ Windows Server 2022 и virtio-win.iso загружены в хранилище Proxmox (local или Ceph)."
+  - "ВМ будет размещена на Ceph RBD для поддержки live migration и HA."
+  - "Доступ в интернет для активации и загрузки обновлений (или настроен WSUS)."
+# === АРТЕФАКТЫ ===
+commands: |
+  # Создание базовой ВМ через CLI (альтернатива GUI)
+  qm create 200 --name "ws2022-template" --memory 8192 --cores 4 --cpu host \
+    --machine q35 --bios ovmf --ostype win11 \
+    --scsihw virtio-scsi-single \
+    --scsi0 ceph-vm:32,iothread=1,discard=on,ssd=1 \
+    --ide2 local:iso/windows-server-2022.iso,media=cdrom \
+    --ide3 local:iso/virtio-win.iso,media=cdrom \
+    --net0 virtio,bridge=vmbr0 \
+    --boot order=ide2 \
+    --tpmstate0 ceph-vm:version=v2.0
+  
+  # Добавление QEMU Guest Agent в конфигурацию ВМ
+  qm set 200 --agent enabled=1,fstrim_cloned_disks=1
+  
+  # После установки и настройки — конвертация в шаблон
+  qm stop 200
+  qm template 200
+  
+  # Клонирование шаблона в новую ВМ (полный клон)
+  qm clone 200 201 --name "ws2022-new" --full
+  
+  # Выполнение Sysprep внутри Windows (через RDP/консоль)
+  # C:\Windows\System32\Sysprep\sysprep.exe /generalize /oobe /shutdown
+config_snippets:
+  recommended_vm_hardware: |
+    # Рекомендуемые параметры для Windows Server 2022
+    BIOS: OVMF (UEFI)
+    Machine: q35
+    CPU: host (с включенными NUMA для больших ВМ)
+    SCSI Controller: VirtIO SCSI Single
+    Disk Bus: SCSI (с iothread=1, discard=on, ssd=1)
+    Network: VirtIO (paravirtualized)
+    TPM: v2.0 (swtpm, обязательно для WS2022)
+    Display: SPICE (с qxl драйвером) или VNC
+    QEMU Agent: enabled=1
+  optimization_tweaks: |
+    # Оптимизация Windows Server 2022 для виртуальной среды
+    1. Отключить Windows Search Indexing
+    2. Отключить Superfetch/SysMain
+    3. Установить схему электропитания "Высокая производительность"
+    4. Отключить визуальные эффекты (Visual Effects -> Adjust for best performance)
+    5. Установить все критические обновления
+    6. Очистить: Dism.exe /online /Cleanup-Image /StartComponentCleanup /ResetBase
+    7. Очистить временные файлы: del /q/f/s %TEMP%\*
+    8. Выполнить Sysprep: sysprep.exe /generalize /oobe /shutdown
+urls:
+  - "https://pve.proxmox.com/wiki/Windows_Virtual_Machines"
+  - "https://docs.fedoraproject.org/en-US/quick-docs/creating-windows-virtual-machines-using-virtio-drivers/"
+  - "https://github.com/virtio-win/virtio-win-pkg-scripts/blob/master/README.md"
+# === СВЯЗИ ===
+related_files:
+  - "INDEX.md"
+  - "Proxmox установка Debian 12 LXC создание шаблона развертывание из шаблона.md"
+  - "Создание Ceph №1.md"
+  - "web меню.md"
+depends_on:
+  - "Создание Ceph №1.md"
+superseded_by: ""
+tags:
+  - "ProxmoxVE"
+  - "WindowsServer2022"
+  - "Template"
+  - "VirtIO"
+  - "QEMUGuestAgent"
+  - "Sysprep"
+  - "UEFI"
+  - "TPM"
+# === ВРЕМЕННОЙ КОНТЕКСТ ===
+last_incident: 2026-09-05
+next_review: 2026-12-01
+valid_until: 2027-01-01
+# === ОТВЕТСТВЕННОСТЬ ===
+reviewer: "cladkyimaffin-hue"
+approval_status: "approved"
+---
 ### USER
 Действуй как опытный системный администратор и эксперт по Proxmox VE. 
 Твои строгие правила работы:
