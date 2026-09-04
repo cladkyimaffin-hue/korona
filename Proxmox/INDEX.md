@@ -1,30 +1,31 @@
 ---
 # === БАЗОВАЯ ИНФОРМАЦИЯ ===
 date_created: 2026-08-30
-date_modified: 2026-09-03
+date_modified: 2026-09-05
 author: cladkyimaffin-hue
 status: "completed"
 # === КОНТЕКСТ СИСТЕМЫ ===
-target_system: "Proxmox VE 8.x/9.x Cluster (pve01: 192.168.202.121, pve02: 192.168.202.179 + QDevice: 192.168.202.251), Ceph, Huawei 2288H V5, LXC"
+target_system: "Proxmox VE 8.x/9.x Cluster (pve01: 192.168.202.121, pve02: 192.168.202.179 + QDevice: 192.168.202.251), Ceph, Huawei 2288H V5, LXC, Windows Server 2022"
 environment: "production"
 # === БЫСТРАЯ КЛАССИФИКАЦИЯ ===
 category: "documentation"
 severity: "info"
 problem: |
-  Необходимость структурированной документации по развертыванию, планированию и обслуживанию гиперконвергентного кластера Proxmox VE с Ceph, сетевой отказоустойчивостью (Bonding), обеспечением кворума через QDevice и стандартизацией развертывания LXC-контейнеров.
+  Необходимость структурированной документации по развертыванию, планированию и обслуживанию гиперконвергентного кластера Proxmox VE с Ceph, сетевой отказоустойчивостью (Bonding), обеспечением кворума через QDevice и стандартизацией развертывания LXC/Windows-шаблонов.
 solution: |
-  Создан комплексный набор Markdown-файлов с YAML-метаданными, описывающих аппаратную спецификацию, агрегацию каналов (LACP), планирование дисковой подсистемы Ceph (CRUSH Rules, Device Classes, PG), практическую установку OSD, создание LXC-шаблонов и обеспечение кворума через QDevice.
+  Создан комплексный набор Markdown-файлов с YAML-метаданными, описывающих аппаратную спецификацию, агрегацию каналов (LACP), планирование дисковой подсистемы Ceph (CRUSH Rules, Device Classes, PG), практическую установку OSD, создание шаблонов Debian 12 LXC и Windows Server 2022, и обеспечение кворума через QDevice.
 root_cause: |
-  Сложность архитектуры гиперконвергентного кластера требует четкой фиксации решений (отказ от локального RAID для дисков данных, использование LACP для 10G сетей, разделение разнородных дисков по CRUSH Rules, DAC-кабели вместо оптики, стандартизация LXC).
+  Сложность архитектуры гиперконвергентного кластера требует четкой фиксации решений (отказ от локального RAID для дисков данных, использование LACP для 10G сетей, разделение разнородных дисков по CRUSH Rules, DAC-кабели вместо оптики, стандартизация LXC/Windows-шаблонов).
 # === AI-СПЕЦИФИЧНЫЕ ПОЛЯ ===
 ai_summary: |
-  Папка содержит полную документацию по кластеру Proxmox VE на базе серверов Huawei 2288H V5. Включает спецификации железа, маппинг портов Intel X722/X710, настройку LACP-бондинга, планирование дисков Ceph (CRUSH Rules, Device Classes, PG), практическую установку OSD на pve01/pve02, создание и развертывание шаблонов Debian 12 LXC, инструкции по развертыванию Ceph, обеспечение кворума через QDevice на третьем хосте и пост-установочные скрипты.
+  Папка содержит полную документацию по кластеру Proxmox VE на базе серверов Huawei 2288H V5. Включает спецификации железа, маппинг портов Intel X722/X710, настройку LACP-бондинга, планирование дисков Ceph (CRUSH Rules, Device Classes, PG), практическую установку OSD на pve01/pve02, создание шаблонов Debian 12 LXC и Windows Server 2022 (с VirtIO, QEMU Guest Agent, UEFI+TPM, Sysprep), инструкции по развертыванию Ceph, обеспечение кворума через QDevice на третьем хосте и пост-установочные скрипты.
 key_takeaways:
   - "Для 7 ТБ дисков не используется локальный RAID1, каждый диск создается как отдельный OSD в Ceph."
   - "Разнородные диски (4 ТБ и 7 ТБ) требуют отдельных Device Classes и CRUSH Rules для предотвращения эффекта «деревянной бочки»."
   - "Сеть 10G для Ceph и VM агрегируется через bond0 (mode 4 / 802.3ad LACP) для отказоустойчивости."
   - "Кластер из 2 нод с данными критически требует QDevice на независимом третьем хосте для предотвращения split-brain."
   - "Шаблон LXC создается только из остановленного и очищенного контейнера; для экономии места при клонировании используется Linked Clone."
+  - "Windows Server 2022 требует: Machine=q35, BIOS=OVMF, VirtIO SCSI, TPM v2.0, QEMU Guest Agent и финальный Sysprep перед шаблоном."
 dont_repeat:
   - "Не предлагать использование оптических модулей 10GBASE-T (RJ45) в SFP+ портах Intel X722."
   - "Не предлагать создание локального зеркала (RAID1/ZFS mirror) из дисков данных."
@@ -35,10 +36,14 @@ dont_repeat:
   - "Не выносить WAL/DB на NVMe, если основные диски — SSD."
   - "Не предлагать `ceph-deploy` — в Proxmox VE 8.x/9.x используется `cephadm` orchestrator."
   - "Не создавать шаблон LXC из работающего контейнера или забывать менять hostname/IP после клонирования."
+  - "Не использовать IDE/SATA для дисков Windows-ВМ — только VirtIO SCSI с подключенным virtio-win.iso."
+  - "Не создавать шаблон Windows без выполнения Sysprep — это приведет к дублированию SID."
+  - "Не использовать machine type i440fx для новых Windows-ВМ — только q35 с UEFI."
 assumptions:
   - "Серверы Huawei 2288H V5 работают в режиме HBA/JBOD для дисков данных."
   - "Коммутаторы поддерживают агрегацию каналов (LACP) и транкинг VLAN."
   - "Диски 7 ТБ видны в системе как /dev/sdX и не имеют активных LVM/ZFS подписей."
+  - "ISO-образы Windows Server 2022 и virtio-win.iso загружены в хранилище Proxmox."
 # === АРТЕФАКТЫ ===
 commands: |
   # Проверка статуса кворума и QDevice
@@ -63,6 +68,14 @@ commands: |
   # Управление LXC шаблонами
   pveam download local debian-12-standard_12.6-1_amd64.tar.zst
   pct set <vmid> -template 1
+  # Создание Windows ВМ с VirtIO и TPM
+  qm create 200 --name ws2022-template --machine q35 --bios ovmf \
+    --scsihw virtio-scsi-single --tpmstate0 ceph-vm:version=v2.0 \
+    --agent enabled=1
+  # Конвертация ВМ в шаблон
+  qm template 200
+  # Клонирование шаблона
+  qm clone 200 201 --full
 config_snippets:
   ceph_pool_config: |
     Size: 2 (для 2 нод с данными)
@@ -79,10 +92,20 @@ config_snippets:
     ceph osd pool create ceph-vm-bulk 128 128 replicated rule-7tb
   lxc_features: |
     features: nesting=1,keyctl=1
+  windows_vm_hardware: |
+    BIOS: OVMF (UEFI)
+    Machine: q35
+    CPU: host
+    SCSI Controller: VirtIO SCSI Single
+    Disk: SCSI, iothread=1, discard=on, ssd=1
+    Network: VirtIO (paravirtualized)
+    TPM: v2.0 (swtpm)
+    QEMU Agent: enabled=1
 urls:
   - "https://github.com/cladkyimaffin-hue/korona/tree/7e61d0c471c64f881b35a5f2d02881fd6535af07/Proxmox"
   - "https://pve.proxmox.com/wiki/Ceph_Server"
   - "https://pve.proxmox.com/wiki/Linux_Container"
+  - "https://pve.proxmox.com/wiki/Windows_Virtual_Machines"
 # === СВЯЗИ ===
 related_files:
   - "hardware-spec.md"
@@ -91,6 +114,7 @@ related_files:
   - "Настройка Ceph Планирование Дисков OSD.md"
   - "Установка Ceph OSD НА на pve02 pve01.md"
   - "Proxmox установка Debian 12 LXC создание шаблона развертывание из шаблона.md"
+  - "Настройка ВМ Windows Server 2022 шаблона.md"
   - "Настройка сети bond0.md"
   - "Установка Proxmox VE на 3 сервера (зеркало 2×480 ГБ + 2×7 ТБ), создание кластера, настройка Ceph, распределение сетей, рекомендации по дискам и сети.md"
 depends_on: []
@@ -105,17 +129,19 @@ tags:
   - "OSD"
   - "CRUSH"
   - "LXC"
+  - "WindowsServer2022"
+  - "VirtIO"
 # === ВРЕМЕННОЙ КОНТЕКСТ ===
-last_incident: 2026-09-03
+last_incident: 2026-09-05
 next_review: 2026-12-01
 valid_until: 2027-01-01
 # === ОТВЕТСТВЕННОСТЬ ===
 reviewer: "cladkyimaffin-hue"
 approval_status: "approved"
 ---
-# Индекс папки: Proxmox (Кластер, Ceph, Сеть и LXC)
+# Индекс папки: Proxmox (Кластер, Ceph, Сеть, LXC и Windows)
 
-**Описание:** Документация, логи и пошаговые инструкции по развертыванию и обслуживанию кластера Proxmox VE на базе серверов Huawei 2288H V5. Охватывает аппаратную спецификацию, агрегацию сетевых каналов (LACP), планирование дисковой подсистемы Ceph (CRUSH Rules, Device Classes, PG), практическую установку OSD на pve01/pve02, создание и развертывание шаблонов Debian 12 LXC, настройку гиперконвергентного хранилища Ceph, обеспечение кворума через QDevice, пост-установочную автоматизацию и конфигурацию HA/SDN.
+**Описание:** Документация, логи и пошаговые инструкции по развертыванию и обслуживанию кластера Proxmox VE на базе серверов Huawei 2288H V5. Охватывает аппаратную спецификацию, агрегацию сетевых каналов (LACP), планирование дисковой подсистемы Ceph (CRUSH Rules, Device Classes, PG), практическую установку OSD на pve01/pve02, создание и развертывание шаблонов Debian 12 LXC и Windows Server 2022 (с VirtIO, UEFI+TPM, QEMU Guest Agent, Sysprep), настройку гиперконвергентного хранилища Ceph, обеспечение кворума через QDevice, пост-установочную автоматизацию и конфигурацию HA/SDN.
 
 ---
 ## ⚡ Quick Answers (Быстрые ответы)
@@ -129,6 +155,7 @@ approval_status: "approved"
 | Как планировать OSD для разнородных дисков (4 ТБ и 7 ТБ)? | Создавать отдельные Device Classes и CRUSH Rules для каждого типа дисков, чтобы избежать эффекта «деревянной бочки». | [Настройка Ceph Планирование Дисков OSD.md](./Настройка%20Ceph%20Планирование%20Дисков%20OSD.md) |
 | Как установить OSD на pve01 и pve02? | Очистить диск `wipefs -a /dev/sdX`, создать OSD через `pveceph osd create /dev/sdX`, назначить Device Class, дождаться `active+clean`. | [Установка Ceph OSD НА на pve02 pve01.md](./Установка%20Ceph%20OSD%20НА%20на%20pve02%20pve01.md) |
 | Как создать и развернуть шаблон Debian 12 LXC? | Очистить контейнер (`apt clean`), остановить (`pct stop`), конвертировать (`pct set <vmid> -template 1`), клонировать через GUI или `pct clone`. | [Proxmox установка Debian 12 LXC создание шаблона развертывание из шаблона.md](./Proxmox%20установка%20Debian%2012%20LXC%20создание%20шаблона%20развертывание%20из%20шаблона.md) |
+| Как создать шаблон Windows Server 2022? | Создать ВМ с q35+OVMF+VirtIO SCSI+TPM v2.0, установить VirtIO-драйверы и QEMU Guest Agent, оптимизировать ОС, выполнить `sysprep /generalize /oobe /shutdown`, конвертировать через `qm template`. | [Настройка ВМ Windows Server 2022 шаблона.md](./Настройка%20ВМ%20Windows%20Server%202022%20шаблона.md) |
 | Как рассчитать количество PG для пула? | Формула: `PG = (OSD_count × 100) / replica_count`, округление до ближайшей степени двойки. Или использовать autoscale. | [Настройка Ceph Планирование Дисков OSD.md](./Настройка%20Ceph%20Планирование%20Дисков%20OSD.md) |
 | Объединяется ли RAM в Ceph? | Нет, Ceph объединяет только дисковое пространство. RAM остается локальной для каждой ноды. | [Установка Proxmox VE на 3 сервера...](./Установка%20Proxmox%20VE%20на%203%20сервера%20(зеркало%202×480%20ГБ%20+%202×7%20ТБ),%20создание%20кластера,%20настройка%20Ceph,%20распределение%20сетей,%20рекомендации%20по%20дискам%20и%20сети.md) |
 | Не работает SSH после установки? | Проверить `PermitRootLogin prohibit-password` в `sshd_config` и права `700` на `~/.ssh`. | [Проблемы с доступом по SSH на Debian.md](./Проблемы%20с%20доступом%20по%20SSH%20на%20Debian.md) |
@@ -146,6 +173,8 @@ approval_status: "approved"
   → Очисти диски `wipefs` → Создай OSD через `pveceph osd create` → Назначь Device Class → Смотри [Установка Ceph OSD НА на pve02 pve01.md](./Установка%20Ceph%20OSD%20НА%20на%20pve02%20pve01.md).
 - **Нужно быстро развернуть стандартизированный Linux-контейнер?** 
   → Загрузи образ через `pveam` → Настрой и очисти базовый LXC → Конвертируй в шаблон → Клонируй → Смотри [Proxmox установка Debian 12 LXC создание шаблона развертывание из шаблона.md](./Proxmox%20установка%20Debian%2012%20LXC%20создание%20шаблона%20развертывание%20из%20шаблона.md).
+- **Нужно развернуть новую Windows Server 2022 ВМ?** 
+  → Используй шаблон WS2022 (q35+OVMF+VirtIO+TPM+Guest Agent) → Клонируй через `qm clone` → Смотри [Настройка ВМ Windows Server 2022 шаблона.md](./Настройка%20ВМ%20Windows%20Server%202022%20шаблона.md).
 - **Нужно добавить новый диск в Ceph или пул перешел в `HEALTH_WARN`?** 
   → Убедись, что контроллер в режиме HBA/JBOD → Проверь утилизацию OSD → Следуй шагам в [Создание Ceph №1.md](./Создание%20Ceph%20№1.md) или [Установка Proxmox VE на 3 сервера...](./Установка%20Proxmox%20VE%20на%203%20сервера%20(зеркало%202×480%20ГБ%20+%202×7%20ТБ),%20создание%20кластера,%20настройка%20Ceph,%20распределение%20сетей,%20рекомендации%20по%20дискам%20и%20сети.md).
 - **Не работает сеть 10G или не определяются порты?** 
