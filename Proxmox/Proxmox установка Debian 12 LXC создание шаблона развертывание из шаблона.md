@@ -1,4 +1,80 @@
-
+---
+# === БАЗОВАЯ ИНФОРМАЦИЯ ===
+date_created: 2026-09-03
+date_modified: 2026-09-03
+author: cladkyimaffin-hue
+status: "completed"
+# === КОНТЕКСТ СИСТЕМЫ ===
+target_system: "Proxmox VE 8.x/9.x, Debian 12 (Bookworm) LXC"
+environment: "production"
+# === БЫСТРАЯ КЛАССИФИКАЦИЯ ===
+category: "setup"
+severity: "medium"
+problem: "Необходимость быстрого и стандартизированного развертывания легковесных Linux-контейнеров (LXC) на базе Debian 12 без ручной установки и настройки ОС каждый раз."
+solution: "Создание базового LXC-контейнера Debian 12, его предварительная оптимизация и очистка, преобразование в шаблон (template) и последующее клонирование для мгновенного развертывания."
+root_cause: "Ручная установка и настройка каждого нового контейнера занимает много времени и приводит к дрейфу конфигураций (configuration drift) между окружениями."
+# === AI-СПЕЦИФИЧНЫЕ ПОЛЯ ===
+ai_summary: "Инструкция по созданию, оптимизации и преобразованию контейнера Debian 12 LXC в шаблон Proxmox VE. Описывает загрузку образа, базовую настройку, очистку системы перед конвертацией и процесс развертывания (клонирования) новых экземпляров из этого шаблона."
+key_takeaways:
+  - "Шаблон LXC создается путем преобразования остановленного контейнера (через GUI или команду `pct set <vmid> -template 1`)."
+  - "Перед созданием шаблона контейнер необходимо очистить: `apt clean`, `rm -rf /tmp/*`, `history -c`."
+  - "При развертывании из шаблона для экономии места на Ceph/ZFS рекомендуется использовать режим 'Linked Clone' (связанный клон), если не требуется полная независимость диска."
+dont_repeat:
+  - "Не предлагать использование полных виртуальных машин (VM) вместо LXC, если задача не требует отдельного ядра, специфических модулей ядра или запуска Docker с nested virtualization."
+  - "Не предлагать создание шаблона из работающего контейнера — контейнер должен быть строго остановлен (`pct stop`)."
+  - "Не забывать изменять hostname, IP-адрес и SSH-ключи после клонирования контейнера во избежание сетевых конфликтов."
+assumptions:
+  - "На хосте Proxmox VE есть доступ в интернет для загрузки стандартного образа Debian 12 через `pveam`."
+  - "Сеть Proxmox настроена, и контейнеры могут получать IP-адреса (статически или через DHCP)."
+# === АРТЕФАКТЫ ===
+commands: |
+  # Обновление списка доступных образов и загрузка Debian 12
+  pveam update
+  pveam download local debian-12-standard_12.6-1_amd64.tar.zst
+  
+  # Очистка контейнера перед превращением в шаблон (выполнять внутри LXC)
+  apt clean
+  apt autoremove -y
+  rm -rf /tmp/* /var/tmp/*
+  history -c
+  
+  # Остановка контейнера и преобразование в шаблон (на хосте Proxmox)
+  pct stop 100
+  pct set 100 -template 1
+  
+  # Создание нового контейнера из шаблона (полный клон)
+  pct clone 100 101 --hostname new-lxc --net0 name=eth0,bridge=vmbr0,ip=dhcp
+config_snippets:
+  lxc_config_optimization: |
+    # Рекомендуемые настройки в /etc/pve/lxc/<vmid>.conf для шаблона
+    features: nesting=1,keyctl=1
+    # nesting=1 позволяет запускать Docker внутри LXC (если требуется)
+    # keyctl=1 необходим для некоторых системных вызовов
+urls:
+  - "https://pve.proxmox.com/wiki/Linux_Container"
+  - "https://pve.proxmox.com/wiki/Container_Templates"
+# === СВЯЗИ ===
+related_files:
+  - "INDEX.md"
+  - "Скрипт pstInstal после установки Proxmox.md"
+  - "Настройка сети bond0.md"
+depends_on:
+  - "Скрипт pstInstal после установки Proxmox.md"
+superseded_by: ""
+tags:
+  - "ProxmoxVE"
+  - "LXC"
+  - "Debian12"
+  - "Template"
+  - "Automation"
+# === ВРЕМЕННОЙ КОНТЕКСТ ===
+last_incident: 2026-09-03
+next_review: 2026-12-01
+valid_until: 2027-01-01
+# === ОТВЕТСТВЕННОСТЬ ===
+reviewer: "cladkyimaffin-hue"
+approval_status: "approved"
+---
 ### USER
 
 ### **Контекст для перехода в новый чат: Proxmox VE 9.2 + Ceph Squid + HA**
