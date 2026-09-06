@@ -315,6 +315,7 @@ qm create 200 --name win2022-template --ostype win10
 Жду вашего подтверждения.
 
 ### USER
+<img width="900" height="324" alt="image" src="https://github.com/user-attachments/assets/6b666078-b17a-4785-beae-24fb54c497de" />
 
 
 ### ASSISTANT
@@ -347,6 +348,8 @@ qm create 200 --name win2022-template --ostype win10
 Жду вашего подтверждения и скриншот.
 
 ### USER
+<img width="902" height="371" alt="image" src="https://github.com/user-attachments/assets/cc519be5-cb3d-41ac-a03e-7d439b08e5c2" />
+
 Дай пояснения каждому параметру - нужен он или нет
 
 ### ASSISTANT
@@ -412,6 +415,8 @@ qm create 200 --name win2022-template --ostype win10
 Жду вашего подтверждения.
 
 ### USER
+<img width="902" height="459" alt="image" src="https://github.com/user-attachments/assets/c2f39e85-607d-418c-acb4-eb6eed6b7121" />
+
 поясни также все параметры
 за сторедж я выбрал ceph-fast
 
@@ -491,6 +496,8 @@ qm create 200 --name win2022-template --ostype win10
 Жду вашего подтверждения.
 
 ### USER
+<img width="909" height="590" alt="image" src="https://github.com/user-attachments/assets/e38a2065-f1f7-4c5b-80ee-80f060bbff46" />
+
 с пояснением
 
 ### ASSISTANT
@@ -564,6 +571,9 @@ qm create 200 --name win2022-template --ostype win10
 Жду вашего подтверждения.
 
 ### USER
+<img width="1462" height="242" alt="image" src="https://github.com/user-attachments/assets/a967c35d-59d9-4b73-8b99-07e74b95bd8a" />
+<img width="1228" height="207" alt="image" src="https://github.com/user-attachments/assets/337d3f26-102f-42ae-b9b6-6c78a40cbd92" />
+<img width="1209" height="204" alt="image" src="https://github.com/user-attachments/assets/3209ed70-6224-4b37-a3e4-8698c66492a4" />
 
 
 ### ASSISTANT
@@ -684,6 +694,8 @@ qm create 200 --name win2022-template --ostype win10
 Жду вашего подтверждения.
 
 ### USER
+<img width="627" height="294" alt="image" src="https://github.com/user-attachments/assets/337cb2b9-a30f-49e8-b368-887c7b22f470" />
+
 1 - Intel
 2 - установил 4
 Для шаблона оставлю 4ГБ
@@ -751,6 +763,8 @@ qm create 200 --name win2022-template --ostype win10
 Жду вашего подтверждения.
 
 ### USER
+<img width="904" height="338" alt="image" src="https://github.com/user-attachments/assets/52bb77a9-9b15-4ad6-85ba-1adc9c35f49a" />
+
 ip задается dhcp?
 
 ### ASSISTANT
