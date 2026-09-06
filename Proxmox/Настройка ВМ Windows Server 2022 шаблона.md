@@ -415,7 +415,8 @@ qm create 200 --name win2022-template --ostype win10
 Жду вашего подтверждения.
 
 ### USER
-<img width="902" height="459" alt="image" src="https://github.com/user-attachments/assets/c2f39e85-607d-418c-acb4-eb6eed6b7121" />
+<img width="520" height="388" alt="image" src="https://github.com/user-attachments/assets/6c2ce4ce-416e-4764-9364-e23caf71d007" />
+
 
 поясни также все параметры
 за сторедж я выбрал ceph-fast
