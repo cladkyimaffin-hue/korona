@@ -259,6 +259,8 @@ qm create 200 --name win2022-template --ostype win10
 Жду вашего подтверждения.
 
 ### USER
+<img width="928" height="683" alt="image" src="https://github.com/user-attachments/assets/61d02f72-b4fd-480e-97b9-7bd607841cde" />
+
 Может через это приложение?
 
 ### ASSISTANT
