@@ -259,7 +259,7 @@ qm create 200 --name win2022-template --ostype win10
 Жду вашего подтверждения.
 
 ### USER
-<img width="928" height="683" alt="image" src="https://github.com/user-attachments/assets/61d02f72-b4fd-480e-97b9-7bd607841cde" />
+<img width="465" height="259" alt="image" src="https://github.com/user-attachments/assets/c6c03f86-8f41-4b1e-a760-4ae40e90d4ee" />
 
 Может через это приложение?
 
@@ -315,7 +315,8 @@ qm create 200 --name win2022-template --ostype win10
 Жду вашего подтверждения.
 
 ### USER
-<img width="900" height="324" alt="image" src="https://github.com/user-attachments/assets/6b666078-b17a-4785-beae-24fb54c497de" />
+<img width="463" height="173" alt="image" src="https://github.com/user-attachments/assets/4fcccf89-9573-4f2e-93ab-25fac1333f28" />
+
 
 
 ### ASSISTANT
@@ -348,7 +349,8 @@ qm create 200 --name win2022-template --ostype win10
 Жду вашего подтверждения и скриншот.
 
 ### USER
-<img width="902" height="371" alt="image" src="https://github.com/user-attachments/assets/cc519be5-cb3d-41ac-a03e-7d439b08e5c2" />
+<img width="467" height="193" alt="image" src="https://github.com/user-attachments/assets/ca6f2ea9-4c01-4068-9cba-420b53d1add3" />
+
 
 Дай пояснения каждому параметру - нужен он или нет
 
@@ -415,7 +417,8 @@ qm create 200 --name win2022-template --ostype win10
 Жду вашего подтверждения.
 
 ### USER
-<img width="520" height="388" alt="image" src="https://github.com/user-attachments/assets/6c2ce4ce-416e-4764-9364-e23caf71d007" />
+<img width="466" height="244" alt="image" src="https://github.com/user-attachments/assets/167e6206-7d13-4da2-a026-99036fd930b0" />
+
 
 
 поясни также все параметры
@@ -695,7 +698,8 @@ qm create 200 --name win2022-template --ostype win10
 Жду вашего подтверждения.
 
 ### USER
-<img width="627" height="294" alt="image" src="https://github.com/user-attachments/assets/337cb2b9-a30f-49e8-b368-887c7b22f470" />
+<img width="332" height="150" alt="image" src="https://github.com/user-attachments/assets/1d669bd9-4c09-4f91-bed1-2c2c9ac3ce3d" />
+
 
 1 - Intel
 2 - установил 4
@@ -764,7 +768,8 @@ qm create 200 --name win2022-template --ostype win10
 Жду вашего подтверждения.
 
 ### USER
-<img width="904" height="338" alt="image" src="https://github.com/user-attachments/assets/52bb77a9-9b15-4ad6-85ba-1adc9c35f49a" />
+<img width="468" height="175" alt="image" src="https://github.com/user-attachments/assets/30f21275-aa35-410d-b531-67ddef1ba8df" />
+
 
 ip задается dhcp?
 
