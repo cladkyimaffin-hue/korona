@@ -1,4 +1,931 @@
 ---
+# ============================================================
+# 1. ИДЕНТИФИКАЦИЯ ДОКУМЕНТА
+# ============================================================
+
+document_id: "DOC-2026-09-03-001"
+title: "Создание шаблона Debian 12 LXC в Proxmox VE и развертывание из шаблона"
+slug: "sozdanie-shablona-debian-12-lxc-proxmox"
+document_type: "setup"
+language: "ru"
+version: "1.0"
+schema_version: "1.0"
+status: "completed"
+confidentiality: "internal"
+priority: "medium"
+
+date_created: 2026-09-03
+date_modified: 2026-09-03
+date_completed: ""
+last_reviewed: ""
+next_review: 2026-12-01
+valid_until: 2027-01-01
+
+author: "cladkyimaffin-hue"
+maintainer: ""
+reviewer: "cladkyimaffin-hue"
+owner_team: ""
+approval_status: "approved"
+
+# ============================================================
+# 2. КЛАССИФИКАЦИЯ И ПОИСК
+# ============================================================
+
+category: "setup"
+domain: "virtualization"
+subdomain: "lxc-template-management"
+
+tags:
+  - "ProxmoxVE"
+  - "LXC"
+  - "Debian12"
+  - "Template"
+  - "Automation"
+
+keywords:
+  - "Debian 12"
+  - "LXC"
+  - "шаблон Proxmox"
+  - "клонирование контейнера"
+  - "Ceph"
+
+aliases:
+  - "Шаблон Debian 12 LXC"
+  - "Развертывание LXC из шаблона Proxmox"
+
+related_topics:
+  - "Ceph"
+  - "ceph-fast"
+  - "ceph-bulk"
+  - "Zabbix"
+  - "DHCP"
+  - "статическая IP-адресация"
+  - "QEMU/KVM"
+
+# ============================================================
+# 3. КРАТКОЕ ОПИСАНИЕ
+# ============================================================
+
+problem: "Необходимо быстро и стандартизированно развертывать Debian 12 LXC-контейнеры без повторной ручной установки и настройки ОС."
+
+summary: "В документе описано создание Debian 12 LXC-контейнера с ID 200, двумя CPU, 4096 МБ RAM и диском 100 ГБ на хранилище ceph-fast. В процессе исправлена ошибка использования параметра --disk вместо --rootfs, настроена сеть через DHCP, затем задан статический IP-адрес 192.168.203.93/22 со шлюзом 192.168.200.1. Контейнер остановлен, очищен от статических сетевых параметров и преобразован в шаблон Proxmox."
+
+ai_summary: "Создан и настроен Debian 12 LXC-контейнер ID 200 для последующего использования в качестве шаблона Proxmox VE. Для LXC необходимо использовать --rootfs, а не --disk; перед преобразованием в шаблон следует остановить контейнер и удалить статический IP и шлюз, чтобы клоны не получили одинаковые сетевые параметры."
+
+business_impact: "Сокращается время создания новых контейнеров и уменьшается риск дрейфа конфигураций между окружениями."
+
+technical_impact: "Создан шаблон Debian 12 LXC на Ceph-хранилище ceph-fast; настроены CPU, RAM, rootfs, сетевой мост, DHCP и статическая маршрутизация."
+
+user_impact: "Администратор получил стандартизированный контейнер и основу для создания последующих экземпляров."
+
+severity: "medium"
+incident_status: "resolved"
+
+# ============================================================
+# 4. СИСТЕМА И ОКРУЖЕНИЕ
+# ============================================================
+
+environment: "production"
+system_role: "Хост Proxmox VE и LXC-контейнер Debian 12, подготовленный как шаблон"
+system_name: "zabbix-lxc"
+hostname: "zabbix-lxc"
+fqdn: ""
+asset_id: ""
+vm_id: "200"
+cluster: ""
+node: "pve01"
+
+operating_system:
+  name: "Debian"
+  version: "12"
+  edition: "Bookworm"
+  architecture: "amd64"
+  build: ""
+  language: ""
+  timezone: ""
+
+platform:
+  name: "Proxmox VE"
+  version: "8.x/9.x"
+  node_version: ""
+  kernel: ""
+  hypervisor: "LXC"
+  machine_type: ""
+  firmware: "unknown"
+
+network:
+  ip_addresses:
+    - "192.168.203.93/22"
+  mac_addresses:
+    - "BC:24:11:49:F8:87"
+  vlan: ""
+  subnet: "192.168.202.0/22"
+  gateway: "192.168.200.1"
+  dns_servers:
+    - ""
+  reverse_proxy: ""
+  firewall_zone: ""
+
+hardware:
+  cpu_model: ""
+  cpu_sockets: ""
+  cpu_cores: "2"
+  cpu_threads: ""
+  memory_allocated: "4096 MiB"
+  memory_type: ""
+  storage:
+    - type: "Ceph RBD"
+      name: "ceph-fast"
+      size: "100G"
+      filesystem: ""
+      mount_point: ""
+
+# ============================================================
+# 5. КОМПОНЕНТЫ И ВЕРСИИ
+# ============================================================
+
+components:
+  - name: "Proxmox VE"
+    type: "platform"
+    version: "8.x/9.x"
+    status_before: ""
+    status_after: "running"
+    configuration: "Управляет LXC-контейнером и шаблоном."
+
+  - name: "LXC container"
+    type: "virtualization"
+    version: ""
+    status_before: "not_created"
+    status_after: "template"
+    configuration: "ID 200, 2 CPU, 4096 MiB RAM, rootfs 100G на ceph-fast."
+
+  - name: "Debian"
+    type: "operating_system"
+    version: "12"
+    status_before: ""
+    status_after: "configured"
+    configuration: "Debian 12 Bookworm, amd64."
+
+dependencies:
+  - name: "Ceph RBD storage"
+    version: ""
+    required: true
+    purpose: "Размещение rootfs контейнера на хранилище ceph-fast."
+
+related_files:
+  - "INDEX.md"
+  - "Скрипт pstInstal после установки Proxmox.md"
+  - "Настройка сети bond0.md"
+
+depends_on:
+  - "Скрипт pstInstal после установки Proxmox.md"
+
+supersedes: ""
+superseded_by: ""
+
+# ============================================================
+# 6. ВРЕМЕННАЯ ШКАЛА
+# ============================================================
+
+timeline:
+  detected_at: "2026-09-03"
+  reported_at: ""
+  investigation_started_at: ""
+  mitigation_started_at: ""
+  resolved_at: "2026-09-03"
+  closed_at: ""
+
+  events:
+    - timestamp: "2026-09-03"
+      event: "Создан и настроен Debian 12 LXC-контейнер ID 200."
+      actor: "cladkyimaffin-hue"
+      evidence: "Исходный Markdown-файл."
+
+    - timestamp: "2026-09-03"
+      event: "Исправлена команда создания контейнера: параметр --disk заменён на --rootfs."
+      actor: "cladkyimaffin-hue"
+      evidence: "Ошибка Unknown option: disk."
+
+    - timestamp: "2026-09-03"
+      event: "Настроен статический IP-адрес и проверен маршрут по умолчанию."
+      actor: "cladkyimaffin-hue"
+      evidence: "ip -4 addr show eth0; ip route show default."
+
+    - timestamp: "2026-09-03"
+      event: "Контейнер остановлен, очищен от статических сетевых параметров и преобразован в шаблон."
+      actor: "cladkyimaffin-hue"
+      evidence: "pct shutdown 200; pct set 200 --net0 name=eth0,bridge=vmbr0; pct template 200."
+
+last_incident: 2026-09-03
+incident_duration: ""
+recurrence_count: 0
+recurrence_pattern: ""
+
+# ============================================================
+# 7. СИМПТОМЫ И ФАКТИЧЕСКИЕ НАБЛЮДЕНИЯ
+# ============================================================
+
+symptoms:
+  - "Новые LXC-контейнеры требуют повторной ручной установки и настройки."
+  - "Команда с параметром --disk завершилась ошибкой Unknown option: disk."
+  - "После первого запуска сетевой интерфейс eth0 находился в состоянии DOWN."
+  - "Внутри контейнера отсутствовала автоматическая конфигурация eth0."
+  - "Команда pct start 200 первоначально не находила конфигурационный файл."
+
+observed_behavior:
+  - metric: "Количество CPU"
+    value_before: ""
+    value_after: "2"
+    expected_value: "2"
+    unit: "cores"
+    source: "Конфигурация контейнера"
+    timestamp: ""
+
+  - metric: "Память"
+    value_before: ""
+    value_after: "4096"
+    expected_value: "4096"
+    unit: "MiB"
+    source: "Конфигурация контейнера"
+    timestamp: ""
+
+  - metric: "Размер rootfs"
+    value_before: ""
+    value_after: "100"
+    expected_value: "100"
+    unit: "G"
+    source: "Конфигурация контейнера"
+    timestamp: ""
+
+  - metric: "IPv4-адрес"
+    value_before: "192.168.203.93/22 dynamic"
+    value_after: "192.168.203.93/22"
+    expected_value: "192.168.203.93/22"
+    unit: ""
+    source: "ip -4 addr show eth0"
+    timestamp: ""
+
+  - metric: "Маршрут по умолчанию"
+    value_before: ""
+    value_after: "default via 192.168.200.1 dev eth0 onlink"
+    expected_value: "default via 192.168.200.1 dev eth0"
+    unit: ""
+    source: "ip route show default"
+    timestamp: ""
+
+expected_behavior:
+  - "Контейнер создаётся с Debian 12, двумя CPU, 4096 MiB RAM и rootfs 100G."
+  - "Сетевой интерфейс автоматически поднимается после перезагрузки."
+  - "Шаблон не содержит общего статического IP-адреса."
+  - "Из шаблона можно создавать новые LXC-контейнеры."
+
+actual_behavior:
+  - "Контейнер создан и преобразован в шаблон."
+  - "Сеть после настройки автоматически поднимается."
+  - "Статические IP и шлюз удалены перед созданием шаблона."
+  - "Попытка использовать --net0 непосредственно с pct clone завершилась ошибкой."
+
+affected_services:
+  - name: "LXC-сеть"
+    impact: "Первоначально интерфейс eth0 не поднимался автоматически."
+    availability: "degraded"
+
+  - name: "Proxmox LXC management"
+    impact: "Создание контейнера потребовало исправления команды."
+    availability: "available"
+
+# ============================================================
+# 8. ПРОБЛЕМА, РЕШЕНИЕ И ПРИЧИНА
+# ============================================================
+
+problem_statement: |
+  Требовалось создать стандартизированный Debian 12 LXC-контейнер
+  в Proxmox VE для дальнейшего использования в качестве шаблона.
+  Контейнер должен был иметь ID 200, hostname zabbix-lxc, 2 CPU,
+  4096 MiB RAM, rootfs 100G на ceph-fast и сетевое подключение через vmbr0.
+
+solution: |
+  Был загружен шаблон Debian 12, после чего создан LXC-контейнер
+  командой pct create с параметром --rootfs ceph-fast:100.
+  В контейнере настроен автозапуск eth0 через /etc/network/interfaces,
+  затем на уровне Proxmox задан статический IP 192.168.203.93/22
+  и шлюз 192.168.200.1. Контейнер остановлен, статические параметры
+  сети удалены, после чего контейнер преобразован в шаблон командой
+  pct template 200.
+
+root_cause: |
+  Основная причина исходной проблемы — отсутствие стандартизированного
+  шаблона Debian 12 LXC и использование неподходящего параметра --disk
+  при создании LXC-контейнера. Для LXC корневой диск должен задаваться
+  через --rootfs. Отсутствие настроек eth0 в /etc/network/interfaces
+  также привело к тому, что интерфейс не поднимался автоматически.
+
+contributing_factors:
+  - "Команда --disk была ошибочно применена к pct create."
+  - "В /etc/network/interfaces отсутствовала конфигурация eth0."
+  - "В процессе использовались разные варианты CLI-команд для pct clone."
+
+trigger:
+  type: "configuration_change"
+  description: "Потребность подготовить Debian 12 LXC-контейнер как повторно используемый шаблон."
+
+resolution_confidence: "confirmed"
+evidence_level: "verified"
+
+# ============================================================
+# 9. ДИАГНОСТИКА
+# ============================================================
+
+diagnostic_method: |
+  Проверялись наличие конфигурационного файла контейнера,
+  параметры pct-конфигурации, состояние сетевого интерфейса,
+  наличие IPv4-адреса, содержимое /etc/network/interfaces,
+  а также маршрут по умолчанию после перезагрузки.
+
+diagnostic_steps:
+  - step: 1
+    action: "Проверить наличие шаблона Debian 12."
+    command: "ls /var/lib/vz/template/cache/"
+    expected_result: "Файл debian-12-standard_12.12-1_amd64.tar.zst присутствует."
+    actual_result: "Имя шаблона получено."
+    conclusion: "Шаблон доступен для создания контейнера."
+    status: "completed"
+    evidence: "debian-12-standard_12.12-1_amd64.tar.zst"
+
+  - step: 2
+    action: "Создать контейнер с корректным rootfs."
+    command: "pct create 200 local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst --rootfs ceph-fast:100 --memory 4096 --cores 2 --net0 name=eth0,bridge=vmbr0 --hostname zabbix-lxc --unprivileged 1"
+    expected_result: "Контейнер создан без ошибки."
+    actual_result: "Создание подтверждено."
+    conclusion: "Контейнер создан."
+    status: "completed"
+    evidence: "Подтверждение пользователя."
+
+  - step: 3
+    action: "Проверить конфигурацию контейнера."
+    command: "cat /etc/pve/lxc/200.conf"
+    expected_result: "Присутствуют cores, memory, net0 и rootfs."
+    actual_result: "Параметры присутствуют."
+    conclusion: "Конфигурация контейнера сохранена."
+    status: "completed"
+    evidence: "Вывод cat /etc/pve/lxc/200.conf."
+
+  - step: 4
+    action: "Проверить состояние сетевого интерфейса."
+    command: "ip link show"
+    expected_result: "eth0 находится в состоянии UP."
+    actual_result: "Первоначально eth0 был DOWN; после ip link set eth0 up стал UP."
+    conclusion: "Интерфейс существует, но требовал настройки автозапуска."
+    status: "completed"
+    evidence: "Вывод ip link show."
+
+  - step: 5
+    action: "Проверить IPv4 и маршрут."
+    command: "ip -4 addr show eth0; ip route show default"
+    expected_result: "IP 192.168.203.93/22 и шлюз 192.168.200.1."
+    actual_result: "Оба значения подтверждены."
+    conclusion: "Статическая сеть работает после перезагрузки."
+    status: "completed"
+    evidence: "Вывод команд с pve01."
+
+checks_performed:
+  - "Проверен список шаблонов Debian 12."
+  - "Проверена конфигурация LXC-контейнера."
+  - "Проверено состояние eth0."
+  - "Проверено получение DHCP-адреса."
+  - "Проверена конфигурация /etc/network/interfaces."
+  - "Проверена работа сети после перезагрузки."
+  - "Проверены статический IP и маршрут по умолчанию."
+  - "Удалены IP и gateway перед преобразованием в шаблон."
+
+logs_examined: []
+
+metrics_examined:
+  - name: "CPU"
+    source: "Конфигурация LXC"
+    unit: "cores"
+    collection_method: "pct config"
+    result: "2"
+
+  - name: "Memory"
+    source: "Конфигурация LXC"
+    unit: "MiB"
+    collection_method: "pct config"
+    result: "4096"
+
+# ============================================================
+# 10. ГИПОТЕЗЫ
+# ============================================================
+
+hypotheses:
+  - id: "H1"
+    description: "Ошибка создания контейнера вызвана использованием неподдерживаемого параметра --disk."
+    status: "confirmed"
+    verification_method: "Повторное выполнение pct create с --disk."
+    evidence_for:
+      - "Получен вывод Unknown option: disk."
+    evidence_against: []
+    conclusion: "Для LXC использован неправильный параметр; требуется --rootfs."
+
+  - id: "H2"
+    description: "Интерфейс eth0 не поднимался автоматически из-за отсутствия его конфигурации в /etc/network/interfaces."
+    status: "confirmed"
+    verification_method: "Проверка /etc/network/interfaces и перезагрузка контейнера."
+    evidence_for:
+      - "Файл содержал только настройки lo."
+      - "После добавления auto eth0 и iface eth0 inet dhcp сеть поднялась после перезагрузки."
+    evidence_against: []
+    conclusion: "Гипотеза подтверждена."
+
+# ============================================================
+# 11. ПРОВЕРЕННЫЕ И ОТВЕРГНУТЫЕ РЕШЕНИЯ
+# ============================================================
+
+tested_solutions:
+  - action: "Использовать --disk при pct create."
+    result: "Команда завершилась ошибкой Unknown option: disk."
+    status: "failed"
+    reason: "Параметр --disk предназначен не для создания LXC-контейнеров."
+
+  - action: "Использовать --rootfs ceph-fast:100 при pct create."
+    result: "Контейнер создан успешно."
+    status: "successful"
+    reason: "Корневой диск LXC задаётся через --rootfs."
+
+  - action: "Добавить auto eth0 и iface eth0 inet dhcp в /etc/network/interfaces."
+    result: "Сеть автоматически поднялась после перезагрузки."
+    status: "successful"
+    reason: "В Debian появилась конфигурация автозапуска eth0."
+
+  - action: "Удалить IP и gateway из net0 перед созданием шаблона."
+    result: "net0 остался без ip= и gw=."
+    status: "successful"
+    reason: "Клоны не будут автоматически наследовать одинаковый адрес."
+
+rejected_solutions:
+  - action: "Использование --disk для LXC."
+    reason_rejected: "pct create не поддерживает этот параметр."
+    risk: "Контейнер не будет создан."
+
+  - action: "Создание шаблона с сохранённым статическим IP."
+    reason_rejected: "Все клоны унаследуют один и тот же IP."
+    risk: "Возникнут сетевые конфликты."
+
+  - action: "Запуск шаблона как обычного контейнера."
+    reason_rejected: "После pct template контейнер предназначен для клонирования."
+    risk: "Нарушение ожидаемой модели использования шаблона."
+
+dont_repeat:
+  - "Не использовать --disk в pct create для LXC; применять --rootfs <storage>:<size>."
+  - "Не создавать шаблон с сохранёнными ip=192.168.203.93/22 и gw=192.168.200.1."
+  - "Не преобразовывать работающий контейнер в шаблон; сначала выполнить pct shutdown или pct stop."
+  - "Не считать успешное выполнение pct clone подтверждением настройки сети без проверки конфигурации клона."
+
+# ============================================================
+# 12. КОМАНДЫ И КОНФИГУРАЦИЯ
+# ============================================================
+
+commands: |
+  ls /var/lib/vz/template/cache/
+  pct create 200 local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst --rootfs ceph-fast:100 --memory 4096 --cores 2 --net0 name=eth0,bridge=vmbr0 --hostname zabbix-lxc --unprivileged 1
+  pct start 200
+  pct exec 200 -- ip -4 addr
+  echo "root:Qwerty123" | pct exec 200 -- chpasswd
+  cat /etc/pve/lxc/200.conf
+  ip link show
+  ip link set eth0 up
+  dhclient -v eth0
+  ip -4 addr show eth0
+  cat /etc/network/interfaces
+  ls -la /etc/systemd/network/
+  echo -e "\nauto eth0\niface eth0 inet dhcp" >> /etc/network/interfaces
+  pct reboot 200
+  pct exec 200 -- ip -4 addr show eth0
+  pct set 200 --net0 name=eth0,bridge=vmbr0,ip=192.168.203.93/22,gw=192.168.200.1
+  pct exec 200 -- ip route show default
+  pct shutdown 200
+  pct set 200 --net0 name=eth0,bridge=vmbr0
+  pct config 200 | grep net0
+  pct template 200
+  pct clone 200 201 --hostname zabbix-01 --net0 name=eth0,bridge=vmbr0,ip=192.168.203.93/22,gw=192.168.200.1
+
+commands_by_system:
+  proxmox: |
+    ls /var/lib/vz/template/cache/
+    pct create 200 local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst --rootfs ceph-fast:100 --memory 4096 --cores 2 --net0 name=eth0,bridge=vmbr0 --hostname zabbix-lxc --unprivileged 1
+    pct start 200
+    pct reboot 200
+    pct set 200 --net0 name=eth0,bridge=vmbr0,ip=192.168.203.93/22,gw=192.168.200.1
+    pct shutdown 200
+    pct set 200 --net0 name=eth0,bridge=vmbr0
+    pct template 200
+
+  windows_powershell: |
+
+  linux_shell: |
+    ip link show
+    ip link set eth0 up
+    dhclient -v eth0
+    ip -4 addr show eth0
+    cat /etc/network/interfaces
+    ls -la /etc/systemd/network/
+    echo -e "\nauto eth0\niface eth0 inet dhcp" >> /etc/network/interfaces
+
+command_safety:
+  requires_administrator: true
+  requires_reboot: true
+  causes_downtime: true
+  modifies_data: true
+  modifies_configuration: true
+  reversible: false
+
+config_snippets:
+  main_configuration: |
+    arch: amd64
+    cores: 2
+    hostname: zabbix-lxc
+    memory: 4096
+    net0: name=eth0,bridge=vmbr0,hwaddr=BC:24:11:49:F8:87,type=veth
+    ostype: debian
+    rootfs: ceph-fast:vm-200-disk-0,size=100G
+    swap: 512
+    unprivileged: 1
+
+  service_configuration: |
+
+  before_change: |
+    auto lo
+    iface lo inet loopback
+
+  after_change: |
+    auto lo
+    iface lo inet loopback
+    auto eth0
+    iface eth0 inet dhcp
+
+configuration_changes:
+  - parameter: "rootfs"
+    old_value: ""
+    new_value: "ceph-fast:vm-200-disk-0,size=100G"
+    reason: "Размещение rootfs на ceph-fast."
+    reversible: false
+
+  - parameter: "network"
+    old_value: "DHCP"
+    new_value: "192.168.203.93/22, gateway 192.168.200.1"
+    reason: "Назначение статического IP."
+    reversible: true
+
+  - parameter: "template status"
+    old_value: "LXC container"
+    new_value: "LXC template"
+    reason: "Подготовка основы для клонирования."
+    reversible: false
+
+# ============================================================
+# 13. ИЗМЕНЕНИЯ И ОТКАТ
+# ============================================================
+
+changes_applied:
+  - change: "Создан LXC-контейнер ID 200."
+    operator: "cladkyimaffin-hue"
+    timestamp: ""
+    target: "pve01 / Proxmox VE"
+    backup_created: false
+    change_reference: ""
+
+  - change: "Настроены DHCP и статическая сеть."
+    operator: "cladkyimaffin-hue"
+    timestamp: ""
+    target: "zabbix-lxc"
+    backup_created: false
+    change_reference: ""
+
+  - change: "Контейнер преобразован в шаблон."
+    operator: "cladkyimaffin-hue"
+    timestamp: ""
+    target: "LXC ID 200"
+    backup_created: false
+    change_reference: ""
+
+rollback_available: false
+rollback_plan: |
+  В исходном файле последовательность отката не описана.
+  Для возврата к обычному контейнеру или восстановления данных
+  необходима отдельная проверка доступных резервных копий и снимков.
+
+rollback_commands: |
+
+rollback_conditions: []
+
+backup:
+  created: false
+  type: "none"
+  location: ""
+  timestamp: ""
+  retention: ""
+
+# ============================================================
+# 14. ПРОВЕРКА РЕЗУЛЬТАТА
+# ============================================================
+
+success_criteria:
+  - "Контейнер ID 200 создан на Debian 12."
+  - "Выделены 2 CPU и 4096 MiB RAM."
+  - "Rootfs размером 100G размещён на ceph-fast."
+  - "Сеть поднимается после перезагрузки."
+  - "Статический IP 192.168.203.93/22 и шлюз 192.168.200.1 подтверждены."
+  - "IP и gateway удалены перед созданием шаблона."
+  - "Контейнер успешно преобразован в LXC-шаблон."
+
+validation_steps:
+  - step: 1
+    action: "Проверить конфигурацию контейнера."
+    expected_result: "Присутствуют cores, memory, net0 и rootfs."
+    actual_result: "Проверено."
+    status: "completed"
+
+  - step: 2
+    action: "Проверить сеть после перезагрузки."
+    expected_result: "eth0 поднят автоматически."
+    actual_result: "Сеть поднялась."
+    status: "completed"
+
+  - step: 3
+    action: "Проверить статический IP и маршрут."
+    expected_result: "192.168.203.93/22 и 192.168.200.1."
+    actual_result: "Значения подтверждены."
+    status: "completed"
+
+  - step: 4
+    action: "Проверить статус шаблона."
+    expected_result: "Контейнер ID 200 является шаблоном."
+    actual_result: "Преобразование выполнено успешно."
+    status: "completed"
+
+before_after_comparison:
+  - metric: "Состояние контейнера"
+    before: "Обычный LXC-контейнер"
+    after: "LXC-шаблон"
+    expected: "LXC-шаблон"
+    improvement: "Можно создавать клоны"
+    source: "pct template 200"
+
+  - metric: "Автозапуск сети"
+    before: "Не настроен"
+    after: "auto eth0 / DHCP"
+    expected: "Сеть поднимается после загрузки"
+    improvement: "Устранена ручная активация интерфейса"
+    source: "/etc/network/interfaces"
+
+post_change_observation_period: ""
+post_change_status: "stable"
+regression_risk: "medium"
+known_side_effects:
+  - "После преобразования в шаблон контейнер нельзя использовать как обычный запущенный контейнер."
+  - "Клонам необходимо назначать уникальные hostname и IP-адреса."
+
+# ============================================================
+# 15. БЕЗОПАСНОСТЬ И РИСКИ
+# ============================================================
+
+security_impact: "low"
+security_considerations:
+  - "Контейнер создан как unprivileged."
+  - "Пароль root был задан через команду chpasswd."
+  - "Пароль Qwerty123 присутствует в исходном документе и должен считаться раскрытым."
+
+data_loss_risk: "medium"
+downtime_required: true
+estimated_downtime: ""
+requires_maintenance_window: false
+
+dangerous_operations:
+  - "pct template 200 необратимо меняет назначение контейнера."
+  - "Изменение сетевых параметров может привести к потере доступа."
+  - "Клонирование с повторным IP-адресом может вызвать сетевой конфликт."
+
+secrets_present: true
+secret_locations:
+  - "Пароль root Qwerty123 указан в тексте исходного Markdown-файла."
+
+# ============================================================
+# 16. ДОКАЗАТЕЛЬСТВА И ИСТОЧНИКИ
+# ============================================================
+
+evidence:
+  - type: "command_output"
+    description: "Ошибка использования неподдерживаемого параметра --disk."
+    location: ""
+    collected_at: ""
+    collected_by: "cladkyimaffin-hue"
+    integrity_check: ""
+
+  - type: "command_output"
+    description: "Конфигурация /etc/pve/lxc/200.conf."
+    location: "/etc/pve/lxc/200.conf"
+    collected_at: ""
+    collected_by: "cladkyimaffin-hue"
+    integrity_check: ""
+
+  - type: "command_output"
+    description: "Проверка IP-адреса и маршрута по умолчанию."
+    location: ""
+    collected_at: ""
+    collected_by: "cladkyimaffin-hue"
+    integrity_check: ""
+
+  - type: "command_output"
+    description: "net0 после удаления IP и gateway."
+    location: ""
+    collected_at: ""
+    collected_by: "cladkyimaffin-hue"
+    integrity_check: ""
+
+source_urls:
+  - "https://pve.proxmox.com/wiki/Linux_Container"
+  - "https://pve.proxmox.com/wiki/Container_Templates"
+
+urls:
+  - "https://github.com/cladkyimaffin-hue/korona/blob/1be111049e8b33028b9e3d9cf9aa335ad6dcb0c2/Proxmox/Proxmox%20%D1%83%D1%81%D1%82%D0%B0%D0%BD%D0%BE%D0%B2%D0%BA%D0%B0%20Debian%2012%20LXC%20%D1%81%D0%BE%D0%B7%D0%B4%D0%B0%D0%BD%D0%B8%D0%B5%20%D1%88%D0%B0%D0%B1%D0%BB%D0%BE%D0%BD%D0%B0%20%D1%80%D0%B0%D0%B7%D0%B2%D0%B5%D1%80%D1%82%D1%8B%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5%20%D0%B8%D0%B7%20%D1%88%D0%B0%D0%B1%D0%BB%D0%BE%D0%BD%D0%B0.md"
+
+references:
+  - title: "Linux Container"
+    url: "https://pve.proxmox.com/wiki/Linux_Container"
+    type: "official_documentation"
+    accessed_at: "2026-09-07"
+    relevance: "Документация по LXC-контейнерам Proxmox."
+
+  - title: "Container Templates"
+    url: "https://pve.proxmox.com/wiki/Container_Templates"
+    type: "official_documentation"
+    accessed_at: "2026-09-07"
+    relevance: "Документация по шаблонам контейнеров."
+
+github:
+  repository: "cladkyimaffin-hue/korona"
+  file_path: "Proxmox/Proxmox установка Debian 12 LXC создание шаблона развертывание из шаблона.md"
+  branch: ""
+  commit: "1be111049e8b33028b9e3d9cf9aa335ad6dcb0c2"
+  issue: ""
+  pull_request: ""
+  related_commits:
+    - "cd5a8b121229ed99425abf8f20237d1ea3c451cb"
+
+# ============================================================
+# 17. ИНСТРУКЦИИ ДЛЯ ИИ
+# ============================================================
+
+ai_instructions:
+  primary_goal: "Использовать документ для создания Debian 12 LXC-шаблонов в Proxmox VE и диагностики аналогичных ошибок при создании и настройке контейнеров."
+
+  use_this_document_for:
+    - "Создание Debian 12 LXC-контейнера."
+    - "Настройка rootfs на ceph-fast."
+    - "Настройка DHCP и статического IP."
+    - "Подготовка остановленного контейнера к преобразованию в шаблон."
+    - "Диагностика ошибки Unknown option: disk."
+
+  do_not_use_this_document_for:
+    - "Настройка Windows Server, Active Directory или терминального сервера."
+    - "Автоматическое выполнение опасных команд без проверки окружения."
+    - "Назначение IP-адресов без подтверждения их уникальности."
+    - "Использование неподтверждённых параметров Proxmox других версий."
+
+  required_context:
+    - "Версия Proxmox VE."
+    - "Имя ноды."
+    - "Доступное Ceph-хранилище."
+    - "VMID или CTID."
+    - "Шаблон Debian и его точное имя."
+    - "Сетевой мост, подсеть, шлюз и свободный IP."
+
+  ask_before_recommending:
+    - "Остановку или перезагрузку контейнера."
+    - "Преобразование контейнера в шаблон."
+    - "Изменение IP-адреса и шлюза."
+    - "Удаление или изменение сетевых параметров."
+    - "Клонирование на production-хранилище."
+
+  response_requirements:
+    - "Сначала сравнить окружение пользователя с окружением документа."
+    - "Использовать --rootfs вместо --disk для pct create."
+    - "Перед созданием шаблона проверить, что контейнер остановлен."
+    - "Удалить статический IP и gateway из шаблона."
+    - "Проверить сеть после перезагрузки."
+    - "Не повторять действия из dont_repeat."
+
+  confidence_limitations:
+    - "Команды проверены только в указанном окружении Proxmox VE 8.x/9.x."
+    - "Точная поддержка параметров может зависеть от версии Proxmox."
+    - "Команда pct clone с параметром --net0 в исходном файле завершилась ошибкой и не подтверждает успешное создание клона."
+
+key_takeaways:
+  - "Для rootfs LXC необходимо использовать --rootfs ceph-fast:100, а не --disk."
+  - "Перед преобразованием в шаблон контейнер нужно остановить."
+  - "Статический IP и gateway необходимо удалить из шаблона во избежание конфликтов у клонов."
+  - "После добавления auto eth0 и iface eth0 inet dhcp сеть поднимается автоматически."
+  - "Перед использованием клона необходимо назначить ему уникальные hostname и сетевые параметры."
+
+assumptions:
+  - "На хосте Proxmox VE доступно Ceph-хранилище ceph-fast."
+  - "Сеть Proxmox настроена через мост vmbr0."
+  - "Шаблон Debian 12 доступен в local:vztmpl."
+  - "IP-адрес 192.168.203.93 свободен для назначения."
+  - "Шлюз 192.168.200.1 является корректным шлюзом для этой сети."
+
+open_questions:
+  - "Какой результат дала последняя попытка pct clone 200 201?"
+  - "Нужно ли создавать полный или связанный клон?"
+  - "Какой уникальный IP-адрес будет назначен каждому будущему клону?"
+  - "Будет ли установлен Zabbix и какая база данных будет использоваться?"
+  - "Нужно ли добавлять контейнеры в HA?"
+
+# ============================================================
+# 18. КАЧЕСТВО ДАННЫХ
+# ============================================================
+
+data_quality:
+  completeness: "partial"
+  accuracy: "partially_verified"
+  freshness: "current"
+  reproducibility: "partially_reproducible"
+  source_quality: "primary"
+
+missing_data:
+  - "Не указана точная версия Proxmox VE для фактического выполнения команд."
+  - "Не указан FQDN контейнера."
+  - "Не указаны DNS-серверы."
+  - "Не указаны даты и время отдельных операций."
+  - "Не указан результат последней команды pct clone."
+  - "Не описана процедура отката."
+  - "Не подтверждено создание рабочего клона после преобразования в шаблон."
+  - "Не указан фактический тип и версия Ceph."
+
+uncertainties:
+  - "Последняя команда pct clone с параметром --net0 завершилась ошибкой Unknown option: net0; успешное развертывание клона не подтверждено."
+  - "В документе одновременно упоминаются Proxmox VE 8.x/9.x и Proxmox VE 9.2; точная версия окружения для контейнера не зафиксирована."
+  - "Корректность шлюза 192.168.200.1 подтверждена только наличием маршрута, но не отдельной проверкой доступности."
+  - "Не подтверждён результат установки Zabbix."
+
+needs_follow_up: true
+follow_up_tasks:
+  - task: "Проверить корректный синтаксис и результат создания клона из шаблона 200."
+    owner: ""
+    due_date: ""
+    status: "pending"
+
+  - task: "Назначить клону уникальные hostname, IP-адрес и SSH-ключи."
+    owner: ""
+    due_date: ""
+    status: "pending"
+
+  - task: "Проверить доступность шлюза и DNS после создания клона."
+    owner: ""
+    due_date: ""
+    status: "pending"
+
+# ============================================================
+# 19. АУДИТ ДОКУМЕНТА
+# ============================================================
+
+audit:
+  created_by: "cladkyimaffin-hue"
+  created_at: "2026-09-07"
+  last_modified_by: ""
+  last_modified_at: ""
+  reviewed_by: "cladkyimaffin-hue"
+  reviewed_at: ""
+  review_result: "pending"
+
+change_history:
+  - version: "1.0"
+    date: "2026-09-07"
+    author: "cladkyimaffin-hue"
+    changes:
+      - "Созданы YAML-метаданные на основе исходного Markdown-файла."
+
+# ============================================================
+# 20. ФИНАЛЬНЫЕ ПОЛЯ
+# ============================================================
+
+review_notes: |
+  Документ описывает создание и преобразование Debian 12 LXC-контейнера
+  в шаблон Proxmox VE. Последняя попытка создания клона завершилась
+  ошибкой из-за неподдерживаемого параметра --net0 в pct clone.
+  Перед применением инструкции в другом окружении необходимо проверить
+  версию Proxmox, синтаксис pct и доступность хранилища.
+
+notes: |
+  В исходном документе присутствует пароль root Qwerty123.
+  Его следует считать раскрытым и заменить перед использованием.
+  В исходном тексте также содержится дополнительный контекст по Proxmox VE,
+  Ceph, HA, Zabbix и будущей Windows Server ВМ; эти сведения сохранены
+  только в релевантных метаданных и не используются как подтверждение
+  успешного завершения последующих задач.
+---
+
+---
 # === БАЗОВАЯ ИНФОРМАЦИЯ ===
 date_created: 2026-09-03
 date_modified: 2026-09-03
