@@ -1,3 +1,968 @@
+---
+# ============================================================
+# 1. ИДЕНТИФИКАЦИЯ ДОКУМЕНТА
+# ============================================================
+
+document_id: "DOC-2026-09-07-001"
+title: "Добавление третьего контроллера домена Windows Server 2022 в домен krnn.ru"
+slug: "dobavlenie-tretego-kontrollera-domena-windows-server-2022-krnn-ru"
+document_type: "runbook"
+language: "ru"
+version: "1.0"
+schema_version: "1.0"
+status: "in_progress"
+confidentiality: "internal"
+priority: "high"
+
+date_created: 2026-09-07
+date_modified: 2026-09-07
+date_completed: ""
+last_reviewed: ""
+next_review: ""
+valid_until: ""
+
+author: "cladkyimaffin-hue"
+maintainer: ""
+reviewer: ""
+owner_team: ""
+approval_status: "draft"
+
+# ============================================================
+# 2. КЛАССИФИКАЦИЯ И ПОИСК
+# ============================================================
+
+category: "setup"
+domain: "active-directory"
+subdomain: "domain-controller-replication"
+
+tags:
+  - "Active Directory"
+  - "AD DS"
+  - "Windows Server 2022"
+  - "Windows Server 2025"
+  - "krnn.ru"
+  - "Proxmox VE"
+  - "репликация"
+  - "DNS"
+  - "виртуальная машина"
+
+keywords:
+  - "третий контроллер домена"
+  - "добавление DC"
+  - "репликация Active Directory"
+  - "Global Catalog"
+  - "FSMO"
+  - "SYSVOL"
+  - "NETLOGON"
+
+aliases:
+  - "Добавление третьего DC"
+  - "Третий контроллер домена krnn.ru"
+  - "Репликация между тремя контроллерами"
+
+related_topics:
+  - "DNS Active Directory"
+  - "FSMO"
+  - "Global Catalog"
+  - "SYSVOL"
+  - "NETLOGON"
+  - "VM-GenerationID"
+  - "Proxmox VE"
+
+# ============================================================
+# 3. КРАТКОЕ ОПИСАНИЕ
+# ============================================================
+
+problem: "Требуется добавить третью виртуальную машину с Windows Server 2022 в существующий домен krnn.ru как дополнительный контроллер домена с репликацией между всеми тремя DC."
+
+summary: "В домене krnn.ru уже работают два контроллера домена: ANDQ.krnn.ru с IP-адресом 192.168.200.10 и DC с IP-адресом 192.168.200.2. Оба контроллера являются writable Global Catalog и работают под управлением Windows Server 2025 Datacenter. ВМ 2002 на Windows Server 2022 была создана из шаблона Proxmox, получила имя WIN-AD, статический IP 192.168.200.225 и была введена в домен как рядовой сервер. Следующий этап — установка AD DS и повышение ВМ до третьего контроллера домена с последующей проверкой репликации."
+
+ai_summary: "Домен krnn.ru обслуживается двумя writable-контроллерами ANDQ и DC, оба являются Global Catalog. ВМ 2002 с Windows Server 2022 уже введена в домен как рядовой сервер; для создания третьего DC необходимо установить AD DS, выполнить повышение до дополнительного контроллера домена и проверить DNS, SYSVOL, NETLOGON и репликацию."
+
+business_impact: "Добавление третьего контроллера должно повысить отказоустойчивость аутентификации, DNS и доступа к каталогу."
+
+technical_impact: "В инфраструктуре появится дополнительная реплика Active Directory, DNS и Global Catalog на виртуальной машине Proxmox."
+
+user_impact: "Пользователи и устройства смогут получать службы домена от одного из трёх контроллеров при корректной работе DNS и репликации."
+
+severity: "high"
+incident_status: "investigating"
+
+# ============================================================
+# 4. СИСТЕМА И ОКРУЖЕНИЕ
+# ============================================================
+
+environment: "production"
+system_role: "Дополнительный контроллер домена Active Directory"
+system_name: "win-ad-ds-01"
+hostname: "WIN-AD"
+fqdn: ""
+asset_id: ""
+vm_id: "2002"
+cluster: ""
+node: "pve01"
+
+operating_system:
+  name: "Windows Server"
+  version: "2022"
+  edition: ""
+  architecture: "x86_64"
+  build: ""
+  language: ""
+  timezone: ""
+
+platform:
+  name: "Proxmox VE"
+  version: ""
+  node_version: ""
+  kernel: ""
+  hypervisor: "QEMU/KVM"
+  machine_type: "pc-q35-11.0+pve2"
+  firmware: "UEFI"
+
+network:
+  ip_addresses:
+    - "192.168.200.225"
+  mac_addresses:
+    - "BC:24:11:98:DB:83"
+  vlan: ""
+  subnet: "255.255.252.0"
+  gateway: "192.168.200.1"
+  dns_servers:
+    - "192.168.200.2"
+    - "192.168.200.10"
+  reverse_proxy: ""
+  firewall_zone: ""
+
+hardware:
+  cpu_model: "x86-64-v2-AES"
+  cpu_sockets: "1"
+  cpu_cores: "2"
+  cpu_threads: ""
+  memory_allocated: "4096 MiB"
+  memory_type: ""
+  storage:
+    - type: "virtual disk"
+      name: "ceph-fast:vm-2002-disk-1"
+      size: "100G"
+      filesystem: ""
+      mount_point: ""
+
+# ============================================================
+# 5. КОМПОНЕНТЫ И ВЕРСИИ
+# ============================================================
+
+components:
+  - name: "Active Directory Domain Services"
+    type: "role"
+    version: ""
+    status_before: "not_promoted"
+    status_after: "pending"
+    configuration: ""
+
+  - name: "DNS Server"
+    type: "service"
+    version: ""
+    status_before: "existing_on_current_dcs"
+    status_after: "pending"
+    configuration: ""
+
+  - name: "QEMU Guest Agent"
+    type: "software"
+    version: ""
+    status_before: "enabled"
+    status_after: "enabled"
+    configuration: "agent: 1"
+
+  - name: "Global Catalog"
+    type: "directory_service"
+    version: ""
+    status_before: ""
+    status_after: "planned"
+    configuration: ""
+
+dependencies:
+  - name: "Active Directory domain krnn.ru"
+    version: ""
+    required: true
+    purpose: "Введение ВМ в домен и повышение до дополнительного контроллера домена."
+
+  - name: "DNS на существующих контроллерах"
+    version: ""
+    required: true
+    purpose: "Разрешение доменных имён и обнаружение контроллеров через SRV-записи."
+
+related_files:
+  - "Настройка AD DS №1.md"
+
+depends_on:
+  - ""
+
+supersedes: ""
+superseded_by: ""
+
+# ============================================================
+# 6. ВРЕМЕННАЯ ШКАЛА
+# ============================================================
+
+timeline:
+  detected_at: ""
+  reported_at: ""
+  investigation_started_at: ""
+  mitigation_started_at: ""
+  resolved_at: ""
+  closed_at: ""
+
+  events:
+    - timestamp: ""
+      event: "Создан полный клон ВМ 2002 из шаблона 2000."
+      actor: ""
+      evidence: "qm clone 2000 2002 --name win-ad-ds-01 --full --storage ceph-fast"
+
+    - timestamp: ""
+      event: "Количество vCPU изменено с 4 до 2."
+      actor: ""
+      evidence: "qm set 2002 --cores 2"
+
+    - timestamp: ""
+      event: "ISO-образы отключены, ВМ запущена."
+      actor: ""
+      evidence: "qm set 2002 --delete ide0 --delete ide2; qm start 2002"
+
+    - timestamp: ""
+      event: "Настроены статический IP-адрес, маска /22, шлюз и DNS."
+      actor: ""
+      evidence: "ipconfig /all"
+
+    - timestamp: ""
+      event: "Подтверждена связь с ANDQ и DC, а также разрешение krnn.ru."
+      actor: ""
+      evidence: "ping 192.168.200.2; ping 192.168.200.10; nslookup krnn.ru"
+
+    - timestamp: ""
+      event: "ВМ переименована в WIN-AD и введена в домен krnn.ru как рядовой сервер."
+      actor: ""
+      evidence: "Rename-Computer; Add-Computer"
+
+last_incident: ""
+incident_duration: ""
+recurrence_count: 0
+recurrence_pattern: ""
+
+# ============================================================
+# 7. СИМПТОМЫ И ФАКТИЧЕСКИЕ НАБЛЮДЕНИЯ
+# ============================================================
+
+symptoms:
+  - "В инфраструктуре требуется третий контроллер домена."
+  - "Новая ВМ пока является рядовым сервером, а не контроллером домена."
+  - "Необходимо обеспечить репликацию каталога между ANDQ, DC и новой ВМ."
+  - "Необходимо проверить здоровье существующей репликации до повышения нового DC."
+
+observed_behavior:
+  - metric: "Количество существующих контроллеров домена"
+    value_before: "2"
+    value_after: ""
+    expected_value: "3"
+    unit: "DC"
+    source: "Get-ADDomainController"
+    timestamp: ""
+
+  - metric: "Связь с DC"
+    value_before: "0% потерь"
+    value_after: ""
+    expected_value: "0% потерь"
+    unit: ""
+    source: "ping"
+    timestamp: ""
+
+  - metric: "Разрешение домена krnn.ru"
+    value_before: "192.168.200.10; 192.168.200.2"
+    value_after: ""
+    expected_value: "Корректные AD DNS-записи"
+    unit: ""
+    source: "nslookup krnn.ru"
+    timestamp: ""
+
+expected_behavior:
+  - "Новая ВМ повышена до writable-контроллера домена."
+  - "Новая ВМ является Global Catalog."
+  - "SYSVOL и NETLOGON доступны."
+  - "Репликация между всеми тремя DC проходит без ошибок."
+  - "DNS SRV-записи включают новый контроллер."
+
+actual_behavior:
+  - "ВМ 2002 введена в домен как рядовой сервер."
+  - "Повышение до контроллера домена ещё не выполнено."
+  - "Репликация между тремя контроллерами ещё не проверена."
+
+affected_services:
+  - name: "Active Directory"
+    impact: "Третий контроллер ещё не добавлен."
+    availability: "available"
+
+  - name: "DNS"
+    impact: "Новая ВМ пока использует DNS существующих DC."
+    availability: "available"
+
+  - name: "AD replication"
+    impact: "Целевая репликация с третьим DC ещё не настроена."
+    availability: "unknown"
+
+# ============================================================
+# 8. ПРОБЛЕМА, РЕШЕНИЕ И ПРИЧИНА
+# ============================================================
+
+problem_statement: |
+  В домене krnn.ru работают два контроллера домена:
+  ANDQ.krnn.ru с IP 192.168.200.10 и DC с IP 192.168.200.2.
+  Требуется добавить третью виртуальную машину Windows Server 2022
+  с IP 192.168.200.225, чтобы она стала дополнительным writable-контроллером
+  домена, Global Catalog и участником репликации Active Directory.
+
+solution: |
+  Создать ВМ 2002 из полного клона шаблона Windows Server 2022,
+  настроить 2 vCPU, 4096 MiB RAM, диск 100G на ceph-fast,
+  статический IP 192.168.200.225, маску /22, шлюз 192.168.200.1
+  и DNS 192.168.200.2 и 192.168.200.10. Ввести сервер в домен krnn.ru,
+  установить роль AD DS, повысить его до дополнительного контроллера
+  домена с DNS и Global Catalog, затем проверить репликацию, SYSVOL,
+  NETLOGON, DNS и FSMO-роли.
+
+root_cause: |
+  Корневая причина отсутствия третьей реплики каталога состоит в том,
+  что новая ВМ пока только введена в домен как рядовой сервер и не была
+  повышена до контроллера домена. Причина подтверждена состоянием текущего
+  этапа работ, но результат будущего повышения и репликации ещё не проверен.
+
+contributing_factors:
+  - "Новый сервер создан из шаблона и изначально имел случайное имя Windows."
+  - "DNS первоначально указывал на MikroTik, а не на контроллеры домена."
+  - "Первоначальная маска была /24 и затем изменена на /22."
+  - "Не выполнена предварительная проверка repadmin и dcdiag перед повышением."
+
+trigger:
+  type: "configuration_change"
+  description: "Потребность добавить третий контроллер домена для отказоустойчивости."
+
+resolution_confidence: "medium"
+evidence_level: "partially_verified"
+
+# ============================================================
+# 9. ДИАГНОСТИКА
+# ============================================================
+
+diagnostic_method: |
+  Проверены конфигурация ВМ в Proxmox, сетевые параметры Windows,
+  связь с существующими контроллерами домена и разрешение имени krnn.ru.
+  Для завершения диагностики необходимо проверить здоровье текущей
+  репликации, FSMO-роли, DNS, SYSVOL и состояние контроллеров командами
+  repadmin, dcdiag, netdom и nslookup.
+
+diagnostic_steps:
+  - step: 1
+    action: "Проверить конфигурацию ВМ."
+    command: "qm config 2002"
+    expected_result: "ВМ имеет 2 vCPU, 4096 MiB RAM, диск 100G на ceph-fast и VirtIO-сеть."
+    actual_result: "Вывод конфигурации предоставлен."
+    conclusion: "Базовая конфигурация ВМ подтверждена."
+    status: "completed"
+    evidence: "Вывод qm config 2002"
+
+  - step: 2
+    action: "Проверить сетевую конфигурацию."
+    command: "ipconfig /all"
+    expected_result: "192.168.200.225, маска /22, шлюз 192.168.200.1, DNS существующих DC."
+    actual_result: "IP и шлюз подтверждены; DNS первоначально указывал на MikroTik, затем был исправлен."
+    conclusion: "Сеть приведена к требованиям домена."
+    status: "completed"
+    evidence: "Вывод ipconfig /all"
+
+  - step: 3
+    action: "Проверить связь с существующими DC."
+    command: "ping 192.168.200.2; ping 192.168.200.10"
+    expected_result: "Ответы без потерь."
+    actual_result: "Оба адреса отвечают, потери 0%."
+    conclusion: "Сетевая связность подтверждена."
+    status: "completed"
+    evidence: "Вывод ping"
+
+  - step: 4
+    action: "Проверить разрешение имени домена."
+    command: "nslookup krnn.ru"
+    expected_result: "Имя разрешается через DNS контроллера домена."
+    actual_result: "DNS-сервер dc.krnn.ru, адрес 192.168.200.2; возвращены 192.168.200.10 и 192.168.200.2."
+    conclusion: "Базовое разрешение домена работает."
+    status: "completed"
+    evidence: "Вывод nslookup krnn.ru"
+
+  - step: 5
+    action: "Проверить состояние существующей репликации."
+    command: "repadmin /replsummary"
+    expected_result: "Ошибки репликации отсутствуют."
+    actual_result: ""
+    conclusion: ""
+    status: "pending"
+    evidence: ""
+
+  - step: 6
+    action: "Проверить состояние контроллеров домена."
+    command: "dcdiag /v"
+    expected_result: "Критические тесты проходят."
+    actual_result: ""
+    conclusion: ""
+    status: "pending"
+    evidence: ""
+
+checks_performed:
+  - "Проверена конфигурация ВМ 2002."
+  - "Проверены IP-адрес, маска, шлюз и DNS."
+  - "Проверена связь с 192.168.200.2."
+  - "Проверена связь с 192.168.200.10."
+  - "Проверено разрешение имени krnn.ru."
+  - "Проверено введение WIN-AD в домен."
+  - "Проверка repadmin не подтверждена."
+  - "Проверка dcdiag не подтверждена."
+  - "Проверка FSMO не подтверждена."
+
+logs_examined:
+  - path: ""
+    source: ""
+    time_range: ""
+    relevant_entries: ""
+
+metrics_examined:
+  - name: "Потери ICMP до DC"
+    source: "ping"
+    unit: "процент"
+    collection_method: "ping 192.168.200.2 и ping 192.168.200.10"
+    result: "0%"
+
+# ============================================================
+# 10. ГИПОТЕЗЫ
+# ============================================================
+
+hypotheses:
+  - id: "H1"
+    description: "После повышения ВМ до дополнительного DC каталог будет реплицироваться между тремя контроллерами."
+    status: "proposed"
+    verification_method: "repadmin /replsummary и repadmin /showrepl"
+    evidence_for:
+      - "Существующие два DC работают в домене."
+      - "Новая ВМ введена в домен."
+      - "Связь с обоими DC подтверждена."
+    evidence_against: []
+    conclusion: "Требует проверки после повышения."
+
+  - id: "H2"
+    description: "DNS-настройка через MikroTik достаточна для повышения до DC."
+    status: "rejected"
+    verification_method: "Проверка DNS-сервера и SRV-записей домена."
+    evidence_for: []
+    evidence_against:
+      - "MikroTik не содержит AD-интегрированные SRV-записи."
+      - "DNS был изменён на 192.168.200.2 и 192.168.200.10."
+    conclusion: "Перед повышением DNS должен указывать на существующие DC."
+
+# ============================================================
+# 11. ПРОВЕРЕННЫЕ И ОТВЕРГНУТЫЕ РЕШЕНИЯ
+# ============================================================
+
+tested_solutions:
+  - action: "Создание полного клона ВМ 2002 из шаблона 2000."
+    result: "Клон создан."
+    status: "successful"
+    reason: "ВМ получила независимый диск на ceph-fast."
+
+  - action: "Настройка статического IP 192.168.200.225."
+    result: "Адрес настроен."
+    status: "successful"
+    reason: "Адрес соответствует плану."
+
+  - action: "Использование DNS 192.168.200.2 и 192.168.200.10."
+    result: "Разрешение krnn.ru работает."
+    status: "successful"
+    reason: "DNS существующих DC содержит доменные записи."
+
+  - action: "Введение WIN-AD в домен krnn.ru."
+    result: "Сервер введён в домен."
+    status: "successful"
+    reason: "Сетевые и DNS-проверки прошли."
+
+rejected_solutions:
+  - action: "Использование MikroTik 192.168.200.1 как DNS перед повышением."
+    reason_rejected: "MikroTik не является AD DNS и не предоставляет необходимые SRV-записи домена."
+    risk: "Повышение может не найти домен или контроллер домена."
+
+  - action: "Оставить маску 255.255.255.0 при инфраструктуре /22."
+    reason_rejected: "Маска /24 может ограничить доступ к адресам 192.168.201.x–192.168.203.x."
+    risk: "Недоступность узлов за пределами подсети 192.168.200.0/24."
+
+  - action: "Считать новую ВМ третьим DC сразу после введения в домен."
+    reason_rejected: "Введённый в домен сервер остаётся member server до установки AD DS и повышения."
+    risk: "Ошибочное представление о наличии третьей реплики каталога."
+
+dont_repeat:
+  - "Не использовать 192.168.200.1 как единственный DNS перед повышением до контроллера домена."
+  - "Не оставлять маску 255.255.255.0, если сервер должен работать во всей сети /22."
+  - "Не считать member server WIN-AD третьим контроллером до успешного повышения и проверки repadmin."
+  - "Не выполнять повышение до DC без проверки текущей репликации и DNS."
+  - "Не переносить FSMO-роли на новый DC без отдельного подтверждённого плана."
+
+# ============================================================
+# 12. КОМАНДЫ И КОНФИГУРАЦИЯ
+# ============================================================
+
+commands: |
+  qm clone 2000 2002 --name win-ad-ds-01 --full --storage ceph-fast
+  qm config 2002
+  qm set 2002 --cores 2
+  qm set 2002 --delete ide0 --delete ide2
+  qm start 2002
+  ipconfig /all
+  ping 192.168.200.2
+  ping 192.168.200.10
+  nslookup krnn.ru
+  Rename-Computer -NewName "WIN-AD" -Restart
+  Add-Computer -DomainName "krnn.ru" -Credential (Get-Credential) -Restart
+  Install-WindowsFeature AD-Domain-Services -IncludeManagementTools
+  Import-Module ADDSDeployment
+  Install-ADDSDomainController
+  repadmin /replsummary
+  repadmin /showrepl
+  dcdiag /v
+  netdom query fsmo
+  net share
+  dfsrmig /getglobalstate
+  nslookup -type=SRV _ldap._tcp.dc._msdcs.krnn.ru
+  Get-ADDomainController -Filter *
+
+commands_by_system:
+  proxmox: |
+    qm clone 2000 2002 --name win-ad-ds-01 --full --storage ceph-fast
+    qm config 2002
+    qm set 2002 --cores 2
+    qm set 2002 --delete ide0 --delete ide2
+    qm start 2002
+
+  windows_powershell: |
+    ipconfig /all
+    ping 192.168.200.2
+    ping 192.168.200.10
+    nslookup krnn.ru
+    Rename-Computer -NewName "WIN-AD" -Restart
+    Add-Computer -DomainName "krnn.ru" -Credential (Get-Credential) -Restart
+    Install-WindowsFeature AD-Domain-Services -IncludeManagementTools
+    Import-Module ADDSDeployment
+    Install-ADDSDomainController
+
+  linux_shell: |
+    -
+
+command_safety:
+  requires_administrator: true
+  requires_reboot: true
+  causes_downtime: false
+  modifies_data: true
+  modifies_configuration: true
+  reversible: false
+
+config_snippets:
+  main_configuration: |
+    VMID: 2002
+    Proxmox name: win-ad-ds-01
+    Windows hostname: WIN-AD
+    IP: 192.168.200.225
+    Subnet mask: 255.255.252.0
+    Gateway: 192.168.200.1
+    DNS: 192.168.200.2, 192.168.200.10
+    Domain: krnn.ru
+
+  service_configuration: |
+    AD DS: planned
+    DNS: existing on current domain controllers
+    Global Catalog: planned
+    SYSVOL: planned
+
+  before_change: |
+    Member server WIN-AD in domain krnn.ru
+    Existing DCs: ANDQ 192.168.200.10 and DC 192.168.200.2
+
+  after_change: |
+    Third writable domain controller
+    Global Catalog enabled
+    AD-integrated DNS enabled
+    Replication verified between all three DCs
+
+configuration_changes:
+  - parameter: "CPU cores"
+    old_value: "4"
+    new_value: "2"
+    reason: "Ресурсная конфигурация для контроллера домена."
+    reversible: true
+
+  - parameter: "DNS servers"
+    old_value: "192.168.200.1"
+    new_value: "192.168.200.2, 192.168.200.10"
+    reason: "Использование DNS существующих контроллеров домена."
+    reversible: true
+
+  - parameter: "Hostname"
+    old_value: "WIN-3VQCTDKL51R"
+    new_value: "WIN-AD"
+    reason: "Стандартизация имени сервера перед введением в домен."
+    reversible: true
+
+# ============================================================
+# 13. ИЗМЕНЕНИЯ И ОТКАТ
+# ============================================================
+
+changes_applied:
+  - change: "Создан полный клон ВМ 2002."
+    operator: ""
+    timestamp: ""
+    target: "Proxmox VE"
+    backup_created: false
+    change_reference: ""
+
+  - change: "ВМ введена в домен krnn.ru."
+    operator: ""
+    timestamp: ""
+    target: "WIN-AD"
+    backup_created: false
+    change_reference: ""
+
+rollback_available: true
+rollback_plan: |
+  До повышения удалить или выключить ВМ можно через Proxmox,
+  если это необходимо. После повышения до контроллера домена
+  удаление должно выполняться штатным demotion-процессом AD DS,
+  а не откатом снапшота виртуальной машины.
+
+rollback_commands: |
+  -
+
+rollback_conditions:
+  - "Повышение завершилось ошибкой и ВМ не стала контроллером."
+  - "После повышения обнаружены неисправимые ошибки репликации."
+  - "Новый DC публикует некорректные DNS-записи."
+  - "Потребовалось штатное понижение нового DC."
+
+backup:
+  created: false
+  type: "none"
+  location: ""
+  timestamp: ""
+  retention: ""
+
+# ============================================================
+# 14. ПРОВЕРКА РЕЗУЛЬТАТА
+# ============================================================
+
+success_criteria:
+  - "Новая ВМ отображается в Get-ADDomainController."
+  - "Новая ВМ имеет IsGlobalCatalog = True."
+  - "Новая ВМ имеет IsReadOnly = False."
+  - "В расшаренных ресурсах присутствуют SYSVOL и NETLOGON."
+  - "repadmin /replsummary не показывает ошибок."
+  - "repadmin /showrepl подтверждает входящую репликацию."
+  - "DNS SRV-записи включают новый DC."
+  - "FSMO-роли остаются на прежних владельцах, если перенос отдельно не планировался."
+
+validation_steps:
+  - step: 1
+    action: "Проверить список контроллеров домена."
+    expected_result: "В списке присутствуют ANDQ, DC и WIN-AD."
+    actual_result: ""
+    status: "pending"
+
+  - step: 2
+    action: "Проверить SYSVOL и NETLOGON."
+    expected_result: "Оба ресурса опубликованы."
+    actual_result: ""
+    status: "pending"
+
+  - step: 3
+    action: "Проверить репликацию."
+    expected_result: "Ошибки отсутствуют."
+    actual_result: ""
+    status: "pending"
+
+  - step: 4
+    action: "Проверить DNS SRV-записи."
+    expected_result: "Новый DC присутствует в записях домена."
+    actual_result: ""
+    status: "pending"
+
+before_after_comparison:
+  - metric: "Количество контроллеров домена"
+    before: "2"
+    after: ""
+    expected: "3"
+    improvement: ""
+    source: "Get-ADDomainController"
+
+  - metric: "Состояние репликации"
+    before: ""
+    after: ""
+    expected: "Без ошибок"
+    improvement: ""
+    source: "repadmin"
+
+post_change_observation_period: ""
+post_change_status: "not_started"
+regression_risk: "high"
+known_side_effects:
+  - "Появление нового DC изменит набор доступных DNS и LDAP-сервисов."
+  - "Ошибки DNS или времени могут нарушить Kerberos и репликацию."
+  - "Откат снапшота DC может повредить состояние репликации."
+
+# ============================================================
+# 15. БЕЗОПАСНОСТЬ И РИСКИ
+# ============================================================
+
+security_impact: "high"
+security_considerations:
+  - "Использовать отдельные защищённые учётные данные администратора домена."
+  - "Не включать пароли в скрипты."
+  - "Проверить сетевой доступ только по необходимым портам AD."
+  - "Обеспечить корректную синхронизацию времени."
+  - "Не выполнять откат снапшота после повышения ВМ до DC."
+
+data_loss_risk: "high"
+downtime_required: false
+estimated_downtime: ""
+requires_maintenance_window: true
+
+dangerous_operations:
+  - "Повышение сервера до контроллера домена."
+  - "Удаление или понижение контроллера домена."
+  - "Откат снапшота ВМ после повышения до DC."
+  - "Изменение DNS и FSMO без проверки репликации."
+
+secrets_present: false
+secret_locations:
+  - "Пароль администратора домена вводится интерактивно через Get-Credential."
+
+# ============================================================
+# 16. ДОКАЗАТЕЛЬСТВА И ИСТОЧНИКИ
+# ============================================================
+
+evidence:
+  - type: "command_output"
+    description: "Конфигурация ВМ 2002 в Proxmox."
+    location: "qm config 2002"
+    collected_at: ""
+    collected_by: ""
+    integrity_check: ""
+
+  - type: "command_output"
+    description: "Сетевые параметры ВМ."
+    location: "ipconfig /all"
+    collected_at: ""
+    collected_by: ""
+    integrity_check: ""
+
+  - type: "command_output"
+    description: "Связь с существующими контроллерами домена."
+    location: "ping 192.168.200.2; ping 192.168.200.10"
+    collected_at: ""
+    collected_by: ""
+    integrity_check: ""
+
+  - type: "command_output"
+    description: "Разрешение имени домена."
+    location: "nslookup krnn.ru"
+    collected_at: ""
+    collected_by: ""
+    integrity_check: ""
+
+source_urls:
+  - "https://github.com/cladkyimaffin-hue/korona/tree/649501eb2d98eb6b9988390710276e290bedc4c3/srv"
+  - "https://github.com/cladkyimaffin-hue/korona/tree/649501eb2d98eb6b9988390710276e290bedc4c3/Proxmox"
+
+urls:
+  - "https://github.com/cladkyimaffin-hue/korona/blob/7ea84e09903414f85d1fb38d580c34eacb212f41/Proxmox/%D0%9D%D0%B0%D1%81%D1%82%D1%80%D0%BE%D0%B9%D0%BA%D0%B0%20AD%20DS%20%E2%84%961.md"
+
+references:
+  - title: "Настройка AD DS №1.md"
+    url: "https://github.com/cladkyimaffin-hue/korona/blob/7ea84e09903414f85d1fb38d580c34eacb212f41/Proxmox/%D0%9D%D0%B0%D1%81%D1%82%D1%80%D0%BE%D0%B9%D0%BA%D0%B0%20AD%20DS%20%E2%84%961.md"
+    type: "internal_note"
+    accessed_at: "2026-09-07"
+    relevance: "Содержит историю создания ВМ, настройки сети, введения в домен и план повышения до третьего DC."
+
+github:
+  repository: "cladkyimaffin-hue/korona"
+  file_path: "Proxmox/Настройка AD DS №1.md"
+  branch: ""
+  commit: "7ea84e09903414f85d1fb38d580c34eacb212f41"
+  issue: ""
+  pull_request: ""
+  related_commits:
+    - ""
+
+# ============================================================
+# 17. ИНСТРУКЦИИ ДЛЯ ИИ
+# ============================================================
+
+ai_instructions:
+  primary_goal: "Помочь безопасно добавить ВМ 2002 как третий writable-контроллер домена krnn.ru и проверить репликацию между ANDQ, DC и WIN-AD."
+
+  use_this_document_for:
+    - "Проверки перед повышением Windows Server 2022 до контроллера домена."
+    - "Настройки DNS и сетевых параметров новой ВМ."
+    - "Проверки репликации Active Directory."
+    - "Проверки SYSVOL, NETLOGON, Global Catalog и FSMO."
+
+  do_not_use_this_document_for:
+    - "Автоматическое удаление или понижение существующих контроллеров."
+    - "Перенос FSMO-ролей без дополнительного плана."
+    - "Откат снапшота виртуальной машины после повышения до DC."
+    - "Применение к доменам с другой топологией или другими IP-адресами без проверки."
+
+  required_context:
+    - "Текущий список контроллеров домена."
+    - "Результат repadmin /replsummary."
+    - "Результат dcdiag /v."
+    - "Текущие FSMO-роли."
+    - "AD Site и Subnet."
+    - "Состояние DNS и SYSVOL."
+
+  ask_before_recommending:
+    - "Повышение сервера до контроллера домена."
+    - "Изменение DNS существующих контроллеров."
+    - "Перенос FSMO-ролей."
+    - "Понижение или удаление любого DC."
+    - "Удаление ВМ или восстановление из резервной копии."
+
+  response_requirements:
+    - "Сначала сравнить окружение пользователя с данными документа."
+    - "Отделять подтверждённые факты от запланированных действий."
+    - "Перед повышением требовать проверку репликации и DNS."
+    - "Проверять результат после каждого этапа."
+    - "Не предлагать откат снапшота после повышения DC."
+    - "Не считать member server полноценным контроллером домена."
+
+  confidence_limitations:
+    - "В документе отсутствуют результаты repadmin и dcdiag."
+    - "Факт успешного повышения ВМ до третьего DC не подтверждён."
+    - "Не подтверждено наличие нового DC в SYSVOL, NETLOGON и DNS SRV."
+    - "Не указаны текущие FSMO-владельцы."
+
+key_takeaways:
+  - "ANDQ и DC являются двумя существующими writable-контроллерами домена krnn.ru и Global Catalog."
+  - "ВМ 2002 с Windows Server 2022 и IP 192.168.200.225 пока является member server, а не DC."
+  - "Перед повышением DNS новой ВМ должен указывать на существующие контроллеры, а не на MikroTik."
+  - "После повышения необходимо проверить repadmin, dcdiag, SYSVOL, NETLOGON и DNS SRV-записи."
+  - "FSMO-роли не следует переносить без отдельной подтверждённой необходимости."
+  - "Откат снапшота после превращения ВМ в DC недопустим как обычная процедура восстановления."
+
+assumptions:
+  - "ВМ 2002 находится в том же физическом сайте, что и существующие DC."
+  - "Домен krnn.ru и существующие контроллеры доступны по сети."
+  - "Пользователь располагает учётными данными администратора домена."
+  - "Виртуализация предоставляет совместимый VM-GenerationID."
+  - "Целевое имя Windows-сервера — WIN-AD."
+
+open_questions:
+  - "Каковы результаты repadmin /replsummary на существующих DC?"
+  - "Каковы результаты dcdiag /v на ANDQ и DC?"
+  - "Как распределены FSMO-роли?"
+  - "Как называется AD Site новой ВМ?"
+  - "Установлены ли роль AD DS и DNS на ВМ 2002?"
+  - "Выполнено ли повышение WIN-AD до контроллера домена?"
+
+# ============================================================
+# 18. КАЧЕСТВО ДАННЫХ
+# ============================================================
+
+data_quality:
+  completeness: "partial"
+  accuracy: "partially_verified"
+  freshness: "unknown"
+  reproducibility: "partially_reproducible"
+  source_quality: "mixed"
+
+missing_data:
+  - "Нет результата repadmin /replsummary."
+  - "Нет результата repadmin /showrepl."
+  - "Нет результата dcdiag /v."
+  - "Не указаны FSMO-владельцы."
+  - "Не подтверждено повышение ВМ до DC."
+  - "Не подтверждено наличие SYSVOL и NETLOGON."
+  - "Не подтверждено появление нового DC в DNS SRV-записях."
+  - "Не указано имя AD Site."
+  - "Не указаны даты выполнения операций."
+
+uncertainties:
+  - "Не подтверждено, завершено ли повышение WIN-AD до контроллера домена."
+  - "Не подтверждено, включены ли DNS и Global Catalog на новом DC."
+  - "Не подтверждено состояние репликации между всеми тремя DC."
+  - "Не подтверждено наличие VM-GenerationID в текущей конфигурации Proxmox."
+  - "Не подтверждено, является ли Windows Server 2022 активированной редакцией."
+
+needs_follow_up: true
+follow_up_tasks:
+  - task: "Проверить состояние существующей репликации командой repadmin /replsummary"
+    owner: ""
+    due_date: ""
+    status: "pending"
+
+  - task: "Проверить состояние контроллеров командой dcdiag /v"
+    owner: ""
+    due_date: ""
+    status: "pending"
+
+  - task: "Установить AD DS и повысить WIN-AD до дополнительного DC"
+    owner: ""
+    due_date: ""
+    status: "pending"
+
+  - task: "Проверить репликацию, SYSVOL, NETLOGON и DNS после повышения"
+    owner: ""
+    due_date: ""
+    status: "pending"
+
+# ============================================================
+# 19. АУДИТ ДОКУМЕНТА
+# ============================================================
+
+audit:
+  created_by: "cladkyimaffin-hue"
+  created_at: "2026-09-07"
+  last_modified_by: ""
+  last_modified_at: ""
+  reviewed_by: ""
+  reviewed_at: ""
+  review_result: "pending"
+
+change_history:
+  - version: "1.0"
+    date: "2026-09-07"
+    author: "cladkyimaffin-hue"
+    changes:
+      - "Зафиксирована конфигурация ВМ 2002."
+      - "Зафиксировано введение WIN-AD в домен krnn.ru."
+      - "Описан план добавления третьего контроллера домена."
+
+# ============================================================
+# 20. ФИНАЛЬНЫЕ ПОЛЯ
+# ============================================================
+
+review_notes: |
+  Документ описывает подготовку ВМ и план добавления третьего DC,
+  но не содержит подтверждения успешного повышения до контроллера
+  домена или завершённой репликации. Перед дальнейшими изменениями
+  необходимо получить результаты repadmin, dcdiag, DNS-проверок,
+  SYSVOL и NETLOGON.
+
+notes: |
+  В домене krnn.ru указаны два существующих контроллера:
+  ANDQ.krnn.ru (192.168.200.10) и DC (192.168.200.2).
+  Новая ВМ 2002 имеет имя win-ad-ds-01 в Proxmox и имя WIN-AD
+  внутри Windows, IP 192.168.200.225, маску /22 и DNS существующих DC.
+---
+
 ### USER
 Действуй как опытный системный администратор и эксперт по Proxmox VE. 
 Твои строгие правила работы:
