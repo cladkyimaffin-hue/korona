@@ -1,134 +1,40 @@
 ---
+# ============================================================
+# 1. ИДЕНТИФИКАЦИЯ ДОКУМЕНТА
+# ============================================================
+
+document_id: "DOC-2026-09-02-001"
+title: "Некорректное отображение расхода RAM в Proxmox при использовании QEMU Guest Agent"
+slug: "nekorrektnoe-otobrazhenie-rashoda-ram-proxmox-qemu-guest-agent"
+document_type: "troubleshooting"
+language: "ru"
+version: "1.0"
+schema_version: "1.0"
+status: "completed"
+confidentiality: "internal"
+priority: "medium"
+
 date_created: 2026-09-02
 date_modified: 2026-09-07
-author: cladkyimaffin-hue
-status: completed
+date_completed: ""
+last_reviewed: ""
+next_review: 2026-12-01
+valid_until: 2027-01-01
 
-target_system: "Proxmox VE 9.2.11, узел pve01; виртуальная машина 2002 AD с Windows Server 2025 Datacenter Evaluation; VMID 2001 win-1c упоминается в ходе диагностики"
-environment: production
+author: "cladkyimaffin-hue"
+maintainer: ""
+reviewer: "cladkyimaffin-hue"
+owner_team: ""
+approval_status: "approved"
 
-category: troubleshooting
-severity: medium
-problem: "Proxmox отображал использование памяти виртуальной машины 2002 выше 100%: 4.36 GiB из 4.00 GiB, несмотря на фактическое использование Windows около 2.43 GiB."
-solution: "Установлены и запущены QEMU Guest Agent и BalloonService внутри Windows Server 2025. После запуска BalloonService Proxmox начал отображать фактическое использование памяти: около 2.55 GiB из 4.00 GiB, или 63.70%."
-root_cause: "QEMU Guest Agent первоначально отсутствовал, а VirtIO Balloon Driver не передавал в Proxmox статистику использования памяти из гостевой ОС из-за отсутствия службы BalloonService. В результате Proxmox отображал потребление процесса QEMU на хосте вместе с накладными расходами виртуализации."
+# ============================================================
+# 2. КЛАССИФИКАЦИЯ И ПОИСК
+# ============================================================
 
-ai_summary: "На ВМ 2002 (AD) Proxmox показывал 108.92% использования памяти, хотя Windows использовала около 61.84% RAM. QEMU Guest Agent был установлен и отвечал на запросы, но этого оказалось недостаточно для корректной метрики памяти. После установки и запуска BalloonService из virtio-win-0.1.302 показатель изменился на корректные 63.70%."
-key_takeaways:
-  - "Работающий QEMU Guest Agent подтверждает связь между Proxmox и гостевой ОС, но сама по себе не гарантирует корректную метрику Memory usage."
-  - "Для передачи статистики памяти в данной конфигурации требуется запущенная служба BalloonService."
-  - "После запуска BalloonService значение изменилось с 4.36 GiB из 4.00 GiB до 2.55 GiB из 4.00 GiB."
-  - "Host memory usage может оставаться выше выделенной памяти из-за накладных расходов процесса QEMU и не является показателем реального использования RAM внутри Windows."
+category: "troubleshooting"
+domain: "virtualization"
+subdomain: "memory-management"
 
-dont_repeat:
-  - "Не считать значение Host memory usage в Proxmox фактическим использованием памяти внутри Windows."
-  - "Не считать отсутствие службы QEMU-GA единственной причиной некорректного отображения, если QEMU Guest Agent уже установлен, запущен и отвечает на qm guest cmd."
-  - "Не устанавливать BalloonService с путем D:\\Balloon\\blnsvr.exe, поскольку в virtio-win-0.1.302 исполняемый файл находится во вложенной папке версии Windows."
-  - "Не создавать службу BalloonService с путем для другой архитектуры или версии Windows."
-  - "Не диагностировать ситуацию как утечку памяти без сравнения показателей внутри Windows и в Proxmox."
-  - "Не использовать команду qm guest info, поскольку в установленной версии Proxmox такая команда отсутствует."
-
-assumptions:
-  - "ВМ 2002 использует Windows Server 2025 Datacenter Evaluation x86_64."
-  - "ВМ 2002 имеет VMID 2002 и выделенные 4096 MiB RAM."
-  - "VirtIO ISO virtio-win-0.1.302 подключен к гостевой ОС как диск D:."
-  - "Для Windows Server 2025 используется файл D:\\Balloon\\2k25\\amd64\\blnsvr.exe."
-  - "Показатель 63.70% из 4.00 GiB зафиксирован после запуска BalloonService."
-  - "Результат для ВМ 2001 не подтвержден в рамках данного файла."
-
-commands: |
-  # На узле Proxmox проверить конфигурацию ВМ
-  qm config 2002
-
-  # Проверить связь Proxmox с QEMU Guest Agent
-  qm guest cmd 2002 ping
-  qm guest cmd 2002 get-osinfo
-
-  # В Windows проверить службу QEMU Guest Agent
-  Get-Service -Name QEMU-GA
-
-  # В Windows проверить фактическое использование памяти
-  Get-CimInstance Win32_OperatingSystem |
-    Select-Object TotalVisibleMemorySize, FreePhysicalMemory |
-    ForEach-Object {
-      [PSCustomObject]@{
-        'Total RAM (GB)' = [math]::Round($_.TotalVisibleMemorySize / 1MB, 2)
-        'Free RAM (GB)' = [math]::Round($_.FreePhysicalMemory / 1MB, 2)
-        'Used RAM (GB)' = [math]::Round(
-          ($_.TotalVisibleMemorySize - $_.FreePhysicalMemory) / 1MB, 2
-        )
-        'Usage %' = [math]::Round(
-          ($_.TotalVisibleMemorySize - $_.FreePhysicalMemory) /
-          $_.TotalVisibleMemorySize * 100, 2
-        )
-      }
-    } |
-    Format-Table
-
-  # Определить букву диска с virtio-win ISO
-  Get-WmiObject Win32_CDROMDrive |
-    Select-Object Drive, VolumeName
-
-  # Установить QEMU Guest Agent из virtio-win ISO
-  Start-Process msiexec.exe `
-    -ArgumentList '/i D:\guest-agent\qemu-ga-x86_64.msi /qn /norestart' `
-    -Wait
-
-  # Проверить наличие исполняемого файла BalloonService
-  Get-ChildItem -Path D:\ -Recurse -Filter 'blnsvr.exe' `
-    -ErrorAction SilentlyContinue |
-    Select-Object FullName
-
-  # Удалить ошибочно созданную службу
-  sc.exe delete BalloonService
-
-  # Создать BalloonService для Windows Server 2025 x64
-  sc.exe create BalloonService `
-    binPath= "D:\Balloon\2k25\amd64\blnsvr.exe" `
-    start= auto
-
-  # Запустить службу и проверить ее статус
-  Start-Service -Name BalloonService
-  Get-Service -Name BalloonService
-
-config_snippets:
-  proxmox_vm_2002: |
-    agent: 1
-    memory: 4096
-    machine: pc-q35-11.0+pve2
-    name: AD
-    ostype: win11
-    numa: 0
-    ide0: local:iso/virtio-win.iso,media=cdrom
-    scsi0: ceph-fast:vm-2002-disk-1,iothread=1,size=100G,ssd=1
-
-  balloon_service: |
-    Service name: BalloonService
-    Executable: D:\Balloon\2k25\amd64\blnsvr.exe
-    Startup type: Automatic
-    Final status: Running
-
-  result: |
-    Before:
-      Proxmox Memory usage: 4.36 GiB of 4.00 GiB
-      Displayed usage: 108.92%
-
-    Inside Windows before correction:
-      Total RAM: 3.93 GB
-      Used RAM: 2.43 GB
-      Usage: 61.84%
-
-    After BalloonService startup:
-      Proxmox Memory usage: 2.55 GiB of 4.00 GiB
-      Displayed usage: 63.70%
-
-urls:
-  - "https://github.com/cladkyimaffin-hue/korona/blob/659b8918e91e830a7d0154dd1ed21c6cf192f676/Proxmox/Proxmox%20%D0%BD%D0%B5%20%D0%BF%D1%80%D0%B0%D0%B2%D0%B8%D0%BB%D1%8C%D0%BD%D0%BE%20%D0%BE%D1%82%D0%BE%D0%B1%D1%80%D0%B0%D0%B6%D0%B0%D0%BB%D0%B8%20%D1%80%D0%B0%D1%81%D1%85%D0%BE%D0%B4%20RAM%20QEMU%20Guest%20Agent.md"
-
-related_files:
-  - "Proxmox разобраться в причине заполнения памяти.md"
-depends_on: []
-superseded_by: ""
 tags:
   - "Proxmox"
   - "QEMU Guest Agent"
@@ -140,13 +46,1049 @@ tags:
   - "VM 2002"
   - "AD"
 
-last_incident: 2026-09-01
-next_review: 2026-12-01
-valid_until: 2027-01-01
+keywords:
+  - "Proxmox Memory usage"
+  - "QEMU Guest Agent"
+  - "VirtIO Balloon Driver"
+  - "BalloonService"
+  - "Windows Server 2025"
+  - "расход RAM"
 
-reviewer: "cladkyimaffin-hue"
-approval_status: approved
+aliases:
+  - "Неправильное отображение расхода RAM в Proxmox"
+  - "Proxmox показывает больше 100 процентов памяти"
+  - "Корректировка Memory usage через BalloonService"
+
+related_topics:
+  - "VirtIO Balloon Driver"
+  - "QEMU Guest Agent"
+  - "Host memory usage"
+  - "Windows Server 2025"
+  - "службы Windows"
+  - "qm guest cmd"
+
+# ============================================================
+# 3. КРАТКОЕ ОПИСАНИЕ
+# ============================================================
+
+problem: "Proxmox отображал использование памяти виртуальной машины 2002 выше 100 процентов: 4.36 GiB из 4.00 GiB, несмотря на фактическое использование Windows около 2.43 GiB."
+
+summary: "ВМ 2002 с Windows Server 2025 Datacenter Evaluation использовала около 2.43 GiB RAM из 3.93 GB внутри гостевой ОС, однако Proxmox показывал 4.36 GiB из выделенных 4.00 GiB, или 108.92 процента. QEMU Guest Agent был установлен и отвечал на команды, но показатель Memory usage не изменился. После создания и запуска службы BalloonService с корректным путем к blnsvr.exe Proxmox начал показывать около 2.55 GiB из 4.00 GiB, или 63.70 процента."
+
+ai_summary: "На ВМ 2002 Proxmox некорректно показывал использование памяти выше 100 процентов, хотя Windows фактически использовала около 61.84 процента RAM. QEMU Guest Agent обеспечил связь с гостевой ОС, но для передачи статистики памяти потребовалась служба BalloonService из virtio-win-0.1.302. После запуска BalloonService с путем D:\\Balloon\\2k25\\amd64\\blnsvr.exe показатель Proxmox изменился на 63.70 процента."
+
+business_impact: "Создавалось впечатление переполнения памяти виртуальной машины и возможной нехватки ресурсов, хотя фактической утечки или переполнения RAM внутри Windows не было."
+
+technical_impact: "Некорректно отображался показатель Memory usage в Proxmox для ВМ 2002. Host memory usage оставался выше выделенной памяти из-за потребления процесса QEMU и накладных расходов виртуализации."
+
+user_impact: "Администратор видел значение использования памяти 108.92 процента вместо фактического использования около 61.84 процента внутри Windows."
+
+severity: "medium"
+incident_status: "resolved"
+
+# ============================================================
+# 4. СИСТЕМА И ОКРУЖЕНИЕ
+# ============================================================
+
+environment: "production"
+system_role: "Виртуальная машина контроллера домена AD"
+system_name: "AD"
+hostname: ""
+fqdn: ""
+asset_id: ""
+vm_id: "2002"
+cluster: ""
+node: "pve01"
+
+operating_system:
+  name: "Windows Server"
+  version: "2025"
+  edition: "Datacenter Evaluation"
+  architecture: "x86_64"
+  build: "26100"
+  language: ""
+  timezone: ""
+
+platform:
+  name: "Proxmox VE"
+  version: "9.2.11"
+  node_version: ""
+  kernel: ""
+  hypervisor: "QEMU/KVM"
+  machine_type: "pc-q35-11.0+pve2"
+  firmware: "UEFI"
+
+network:
+  ip_addresses:
+    - ""
+  mac_addresses:
+    - "BC:24:11:D2:C7:4F"
+  vlan: ""
+  subnet: ""
+  gateway: ""
+  dns_servers:
+    - ""
+  reverse_proxy: ""
+  firewall_zone: ""
+
+hardware:
+  cpu_model: "x86-64-v2-AES"
+  cpu_sockets: "1"
+  cpu_cores: "2"
+  cpu_threads: ""
+  memory_allocated: "4096 MiB"
+  memory_type: ""
+  storage:
+    - type: "Ceph"
+      name: "ceph-fast:vm-2002-disk-1"
+      size: "100G"
+      filesystem: ""
+      mount_point: ""
+
+# ============================================================
+# 5. КОМПОНЕНТЫ И ВЕРСИИ
+# ============================================================
+
+components:
+  - name: "QEMU Guest Agent"
+    type: "software"
+    version: ""
+    status_before: "missing"
+    status_after: "running"
+    configuration: "Служба QEMU-GA установлена из D:\\guest-agent\\qemu-ga-x86_64.msi."
+
+  - name: "VirtIO Balloon Driver"
+    type: "driver"
+    version: "virtio-win-0.1.302"
+    status_before: "installed"
+    status_after: "running"
+    configuration: "Устройство отображалось как VirtIO Balloon Driver со статусом OK."
+
+  - name: "BalloonService"
+    type: "service"
+    version: "virtio-win-0.1.302"
+    status_before: "missing"
+    status_after: "running"
+    configuration: "Executable: D:\\Balloon\\2k25\\amd64\\blnsvr.exe; startup type: Automatic."
+
+dependencies:
+  - name: "virtio-win ISO"
+    version: "0.1.302"
+    required: true
+    purpose: "Предоставляет QEMU Guest Agent, VirtIO Balloon Driver и blnsvr.exe."
+
+related_files:
+  - "Proxmox разобраться в причине заполнения памяти.md"
+
+depends_on:
+  - ""
+
+supersedes: ""
+superseded_by: ""
+
+# ============================================================
+# 6. ВРЕМЕННАЯ ШКАЛА
+# ============================================================
+
+timeline:
+  detected_at: "2026-09-01"
+  reported_at: ""
+  investigation_started_at: "2026-09-01"
+  mitigation_started_at: ""
+  resolved_at: "2026-09-02"
+  closed_at: ""
+
+  events:
+    - timestamp: "2026-09-01"
+      event: "В Proxmox обнаружено отображение Memory usage 4.36 GiB из 4.00 GiB, или 108.92 процента."
+      actor: "cladkyimaffin-hue"
+      evidence: "Показатель Memory usage в Proxmox для ВМ 2002."
+
+    - timestamp: "2026-09-01"
+      event: "В Windows зафиксировано использование 2.43 GB из 3.93 GB, или 61.84 процента."
+      actor: "cladkyimaffin-hue"
+      evidence: "Вывод PowerShell Get-CimInstance Win32_OperatingSystem."
+
+    - timestamp: "2026-09-01"
+      event: "Установлен и запущен QEMU Guest Agent."
+      actor: "cladkyimaffin-hue"
+      evidence: "Get-Service QEMU-GA показал статус Running."
+
+    - timestamp: "2026-09-01"
+      event: "Связь с QEMU Guest Agent подтверждена командой qm guest cmd 2002 get-osinfo."
+      actor: "cladkyimaffin-hue"
+      evidence: "Команда вернула сведения о Windows Server 2025."
+
+    - timestamp: "2026-09-02"
+      event: "Создана и запущена служба BalloonService с корректным путем к blnsvr.exe."
+      actor: "cladkyimaffin-hue"
+      evidence: "Get-Service -Name BalloonService показал статус Running."
+
+    - timestamp: "2026-09-02"
+      event: "Memory usage в Proxmox изменился до 2.55 GiB из 4.00 GiB, или 63.70 процента."
+      actor: "cladkyimaffin-hue"
+      evidence: "Зафиксированный результат после запуска BalloonService."
+
+last_incident: 2026-09-01
+incident_duration: ""
+recurrence_count: 0
+recurrence_pattern: ""
+
+# ============================================================
+# 7. СИМПТОМЫ И ФАКТИЧЕСКИЕ НАБЛЮДЕНИЯ
+# ============================================================
+
+symptoms:
+  - "Proxmox отображал Memory usage 4.36 GiB из 4.00 GiB."
+  - "Процент использования памяти отображался выше 100 процентов."
+  - "Windows фактически использовала около 2.43 GB RAM."
+  - "QEMU Guest Agent первоначально отсутствовал."
+  - "После установки QEMU Guest Agent показатель Memory usage не изменился."
+  - "Служба BalloonService отсутствовала."
+  - "Служба BalloonService с путем D:\\balloon\\blnsvr.exe не запускалась."
+
+observed_behavior:
+  - metric: "Memory usage в Proxmox до исправления"
+    value_before: "4.36"
+    value_after: "2.55"
+    expected_value: ""
+    unit: "GiB из 4.00 GiB"
+    source: "Proxmox"
+    timestamp: ""
+
+  - metric: "Displayed usage до исправления"
+    value_before: "108.92"
+    value_after: "63.70"
+    expected_value: ""
+    unit: "процент"
+    source: "Proxmox"
+    timestamp: ""
+
+  - metric: "Использование RAM внутри Windows"
+    value_before: "2.43"
+    value_after: ""
+    expected_value: ""
+    unit: "GB"
+    source: "PowerShell"
+    timestamp: ""
+
+  - metric: "Usage внутри Windows"
+    value_before: "61.84"
+    value_after: ""
+    expected_value: ""
+    unit: "процент"
+    source: "PowerShell"
+    timestamp: ""
+
+  - metric: "Host memory usage"
+    value_before: "4.36"
+    value_after: "4.36"
+    expected_value: ""
+    unit: "GiB"
+    source: "Proxmox"
+    timestamp: ""
+
+expected_behavior:
+  - "Proxmox должен отображать фактическое использование памяти гостевой ОС."
+  - "Показатель Memory usage не должен превышать 100 процентов без соответствующего фактического расхода памяти внутри Windows."
+  - "Служба BalloonService должна быть запущена при использовании соответствующего VirtIO Balloon Driver."
+
+actual_behavior:
+  - "Proxmox отображал Host memory usage вместо корректной статистики использования RAM гостевой ОС."
+  - "QEMU Guest Agent работал, но сам по себе не исправил Memory usage."
+  - "После запуска BalloonService Proxmox начал отображать значение, близкое к фактическому расходу памяти Windows."
+
+affected_services:
+  - name: "Proxmox Memory usage metrics"
+    impact: "Показатель использования памяти был некорректным."
+    availability: "degraded"
+
+  - name: "QEMU Guest Agent"
+    impact: "Изначально отсутствовал; после установки отвечал на команды."
+    availability: "available"
+
+  - name: "BalloonService"
+    impact: "Изначально отсутствовала; после создания и запуска передала статистику памяти."
+    availability: "available"
+
+# ============================================================
+# 8. ПРОБЛЕМА, РЕШЕНИЕ И ПРИЧИНА
+# ============================================================
+
+problem_statement: |
+  На виртуальной машине 2002 с именем AD, работающей в Proxmox VE 9.2.11
+  на узле pve01, интерфейс Proxmox отображал Memory usage 4.36 GiB
+  из выделенных 4.00 GiB, или 108.92 процента. При этом внутри Windows
+  Server 2025 Datacenter Evaluation использовалось около 2.43 GB из 3.93 GB,
+  или 61.84 процента. Требовалось определить, является ли превышение
+  реальной проблемой памяти и восстановить корректное отображение метрики.
+
+solution: |
+  Внутри Windows Server 2025 был установлен QEMU Guest Agent из ISO
+  virtio-win-0.1.302, после чего служба QEMU-GA была запущена.
+  Работоспособность канала связи подтверждена командами qm guest cmd 2002 ping
+  и qm guest cmd 2002 get-osinfo. Поскольку после установки агента значение
+  Memory usage не изменилось, была создана служба BalloonService.
+  Первоначальный путь D:\balloon\blnsvr.exe оказался неверным. После поиска
+  файла служба была пересоздана с путем D:\Balloon\2k25\amd64\blnsvr.exe,
+  настроена на автоматический запуск и запущена. После этого Proxmox начал
+  отображать 2.55 GiB из 4.00 GiB, или 63.70 процента.
+
+root_cause: |
+  QEMU Guest Agent первоначально отсутствовал, а после его установки
+  и подтверждения связи не была запущена служба BalloonService,
+  необходимая в данной конфигурации для передачи статистики памяти
+  через VirtIO Balloon. Поэтому Proxmox отображал потребление процесса
+  QEMU на хосте вместе с накладными расходами виртуализации.
+  Дополнительной причиной неудачного запуска службы был неправильный
+  путь D:\balloon\blnsvr.exe вместо D:\Balloon\2k25\amd64\blnsvr.exe.
+
+contributing_factors:
+  - "QEMU Guest Agent не был установлен в первоначальной конфигурации."
+  - "Работающий QEMU Guest Agent ошибочно рассматривался как достаточное условие для корректной метрики памяти."
+  - "Служба BalloonService отсутствовала."
+  - "Использовался путь D:\\balloon\\blnsvr.exe, в котором отсутствовал каталог версии Windows и архитектуры."
+  - "Host memory usage интерпретировался как фактическое использование памяти внутри Windows."
+
+trigger:
+  type: "configuration_change"
+  description: "Диагностика отображения расхода памяти виртуальной машины 2002 в Proxmox."
+
+resolution_confidence: "confirmed"
+evidence_level: "verified"
+
+# ============================================================
+# 9. ДИАГНОСТИКА
+# ============================================================
+
+diagnostic_method: |
+  Сравнивались показатели памяти в Proxmox и внутри Windows.
+  Дополнительно проверялись конфигурация ВМ, наличие и состояние QEMU Guest Agent,
+  наличие VirtIO Balloon Driver, доступность канала qm guest cmd и расположение
+  исполняемого файла blnsvr.exe на подключенном ISO virtio-win.
+
+diagnostic_steps:
+  - step: 1
+    action: "Проверить службу QEMU Guest Agent внутри Windows."
+    command: "Get-Service -Name QEMU-GA"
+    expected_result: "Служба найдена и имеет статус Running."
+    actual_result: "Первоначально служба не найдена."
+    conclusion: "QEMU Guest Agent отсутствовал."
+    status: "completed"
+    evidence: "Get-Service сообщил NoServiceFoundForGivenName."
+
+  - step: 2
+    action: "Проверить VirtIO Balloon Driver."
+    command: "Get-PnpDevice | Where-Object {$_.Class -eq \"System\" -or $_.FriendlyName -like \"*Balloon*\"} | Format-Table Status, Class, FriendlyName, DeviceID"
+    expected_result: "VirtIO Balloon Driver присутствует со статусом OK."
+    actual_result: "VirtIO Balloon Driver присутствовал со статусом OK."
+    conclusion: "Драйвер установлен и работает."
+    status: "completed"
+    evidence: "Вывод Get-PnpDevice."
+
+  - step: 3
+    action: "Измерить фактическое использование памяти внутри Windows."
+    command: "Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize, FreePhysicalMemory | ForEach-Object { [PSCustomObject]@{ 'Total RAM (GB)' = [math]::Round($_.TotalVisibleMemorySize / 1MB, 2); 'Free RAM (GB)' = [math]::Round($_.FreePhysicalMemory / 1MB, 2); 'Used RAM (GB)' = [math]::Round( ($_.TotalVisibleMemorySize - $_.FreePhysicalMemory) / 1MB, 2 ); 'Usage %' = [math]::Round( ($_.TotalVisibleMemorySize - $_.FreePhysicalMemory) / $_.TotalVisibleMemorySize * 100, 2 ) } } | Format-Table"
+    expected_result: "Получить фактический расход RAM гостевой ОС."
+    actual_result: "Total RAM: 3.93 GB; Used RAM: 2.43 GB; Usage: 61.84%."
+    conclusion: "Реального использования 108.92% внутри Windows не обнаружено."
+    status: "completed"
+    evidence: "Вывод PowerShell."
+
+  - step: 4
+    action: "Проверить конфигурацию ВМ на узле Proxmox."
+    command: "qm config 2002"
+    expected_result: "Проверить memory, agent, machine и подключенный virtio-win ISO."
+    actual_result: "agent: 1; memory: 4096; machine: pc-q35-11.0+pve2; ide0: local:iso/virtio-win.iso."
+    conclusion: "QEMU Guest Agent включен в конфигурации, но его служба отсутствовала внутри гостя."
+    status: "completed"
+    evidence: "Вывод qm config 2002."
+
+  - step: 5
+    action: "Определить букву диска с virtio-win ISO."
+    command: "Get-WmiObject Win32_CDROMDrive | Select-Object Drive, VolumeName"
+    expected_result: "Определить букву диска с томом virtio-win."
+    actual_result: "D: virtio-win-0.1.302."
+    conclusion: "ISO доступен на диске D:."
+    status: "completed"
+    evidence: "Вывод Get-WmiObject Win32_CDROMDrive."
+
+  - step: 6
+    action: "Установить QEMU Guest Agent."
+    command: "Start-Process msiexec.exe -ArgumentList '/i D:\\guest-agent\\qemu-ga-x86_64.msi /qn /norestart' -Wait"
+    expected_result: "Служба QEMU-GA установлена."
+    actual_result: "Get-Service QEMU-GA показал статус Running."
+    conclusion: "QEMU Guest Agent установлен и запущен."
+    status: "completed"
+    evidence: "Вывод Get-Service QEMU-GA."
+
+  - step: 7
+    action: "Проверить канал связи с QEMU Guest Agent."
+    command: "qm guest cmd 2002 get-osinfo"
+    expected_result: "Получить сведения об операционной системе в JSON."
+    actual_result: "Получен JSON с данными Windows Server 2025."
+    conclusion: "Канал связи между Proxmox и агентом работает."
+    status: "completed"
+    evidence: "Вывод qm guest cmd 2002 get-osinfo."
+
+  - step: 8
+    action: "Проверить наличие службы BalloonService."
+    command: "Get-Service -Name \"*balloon*\""
+    expected_result: "Служба BalloonService найдена и запущена."
+    actual_result: "Служба не найдена."
+    conclusion: "BalloonService отсутствовала."
+    status: "completed"
+    evidence: "Пустой вывод Get-Service."
+
+  - step: 9
+    action: "Проверить запуск службы с первоначальным путем."
+    command: "Start-Process sc.exe -ArgumentList \"create BalloonService binPath= `\"D:\\balloon\\blnsvr.exe`\" start= auto\" -Wait"
+    expected_result: "Служба запускается."
+    actual_result: "Служба создана, но Start-Service завершился ошибкой."
+    conclusion: "Путь к исполняемому файлу неверен или файл отсутствует."
+    status: "failed"
+    evidence: "Ошибка Start-Service и статус Stopped."
+
+  - step: 10
+    action: "Найти точное расположение blnsvr.exe."
+    command: "Get-ChildItem -Path D:\\ -Recurse -Filter 'blnsvr.exe' -ErrorAction SilentlyContinue | Select-Object FullName"
+    expected_result: "Получить полный путь к исполняемому файлу для Windows Server 2025 amd64."
+    actual_result: "Найден файл D:\\Balloon\\2k25\\amd64\\blnsvr.exe."
+    conclusion: "Использован корректный путь для Windows Server 2025 x64."
+    status: "completed"
+    evidence: "Вывод Get-ChildItem."
+
+  - step: 11
+    action: "Пересоздать и запустить BalloonService."
+    command: "sc.exe delete BalloonService; sc.exe create BalloonService binPath= \"D:\\Balloon\\2k25\\amd64\\blnsvr.exe\" start= auto; Start-Service -Name BalloonService"
+    expected_result: "Служба создана и запущена."
+    actual_result: "Get-Service показал Running."
+    conclusion: "BalloonService работает."
+    status: "completed"
+    evidence: "Вывод Get-Service -Name BalloonService."
+
+checks_performed:
+  - "Проверена конфигурация ВМ командой qm config 2002."
+  - "Проверено наличие и состояние службы QEMU-GA."
+  - "Проверен VirtIO Balloon Driver в диспетчере устройств."
+  - "Сравнены показатели памяти внутри Windows и в Proxmox."
+  - "Проверена связь через qm guest cmd 2002 ping."
+  - "Проверена связь через qm guest cmd 2002 get-osinfo."
+  - "Проверено наличие BalloonService."
+  - "Проверено расположение blnsvr.exe на virtio-win ISO."
+  - "Проверено состояние BalloonService после запуска."
+
+logs_examined:
+  - path: ""
+    source: ""
+    time_range: ""
+    relevant_entries: ""
+
+metrics_examined:
+  - name: "Memory usage"
+    source: "Proxmox"
+    unit: "GiB и процент"
+    collection_method: "Интерфейс Proxmox"
+    result: "Изменилось с 4.36 GiB и 108.92% до 2.55 GiB и 63.70%."
+
+  - name: "Использование памяти внутри Windows"
+    source: "PowerShell Win32_OperatingSystem"
+    unit: "GB и процент"
+    collection_method: "Get-CimInstance"
+    result: "2.43 GB и 61.84%."
+
+# ============================================================
+# 10. ГИПОТЕЗЫ
+# ============================================================
+
+hypotheses:
+  - id: "H1"
+    description: "В Windows отсутствует QEMU Guest Agent."
+    status: "confirmed"
+    verification_method: "Get-Service -Name QEMU-GA."
+    evidence_for:
+      - "Служба первоначально не была найдена."
+    evidence_against: []
+    conclusion: "Гипотеза подтверждена как один из факторов, но не объясняет сохранение некорректной метрики после установки агента."
+
+  - id: "H2"
+    description: "VirtIO Balloon Driver отсутствует или не работает."
+    status: "rejected"
+    verification_method: "Проверка Get-PnpDevice."
+    evidence_for: []
+    evidence_against:
+      - "VirtIO Balloon Driver присутствовал со статусом OK."
+    conclusion: "Гипотеза отвергнута."
+
+  - id: "H3"
+    description: "В Windows действительно используется более 100 процентов выделенной памяти."
+    status: "rejected"
+    verification_method: "Сравнение с показателями Win32_OperatingSystem."
+    evidence_for: []
+    evidence_against:
+      - "Windows использовала 2.43 GB из 3.93 GB, или 61.84 процента."
+    conclusion: "Реального переполнения памяти Windows не подтверждено."
+
+  - id: "H4"
+    description: "Proxmox отображает Host memory usage с накладными расходами процесса QEMU."
+    status: "confirmed"
+    verification_method: "Сравнение показателей Proxmox и Windows до запуска BalloonService."
+    evidence_for:
+      - "Proxmox показывал 4.36 GiB при выделенных 4.00 GiB."
+      - "Windows показывала использование 2.43 GB."
+    evidence_against: []
+    conclusion: "Гипотеза подтверждена."
+
+  - id: "H5"
+    description: "BalloonService отсутствует, поэтому статистика памяти не передаётся корректно."
+    status: "confirmed"
+    verification_method: "Проверка службы, создание службы и сравнение показателя после запуска."
+    evidence_for:
+      - "Служба BalloonService первоначально отсутствовала."
+      - "После запуска показатель изменился до 2.55 GiB и 63.70 процента."
+    evidence_against: []
+    conclusion: "Гипотеза подтверждена."
+
+  - id: "H6"
+    description: "Служба BalloonService не запускается из-за неверного пути к blnsvr.exe."
+    status: "confirmed"
+    verification_method: "Поиск blnsvr.exe на диске D: и пересоздание службы."
+    evidence_for:
+      - "Путь D:\\balloon\\blnsvr.exe не позволил запустить службу."
+      - "Корректный файл найден по пути D:\\Balloon\\2k25\\amd64\\blnsvr.exe."
+    evidence_against: []
+    conclusion: "Гипотеза подтверждена."
+
+# ============================================================
+# 11. ПРОВЕРЕННЫЕ И ОТВЕРГНУТЫЕ РЕШЕНИЯ
+# ============================================================
+
+tested_solutions:
+  - action: "Установить QEMU Guest Agent из D:\\guest-agent\\qemu-ga-x86_64.msi."
+    result: "Служба QEMU-GA установлена и запущена; qm guest cmd 2002 get-osinfo вернул данные."
+    status: "partially_successful"
+    reason: "Установлена связь с гостевой ОС, но показатель Memory usage не исправился."
+
+  - action: "Проверить VirtIO Balloon Driver."
+    result: "Драйвер найден со статусом OK."
+    status: "neutral"
+    reason: "Проверка подтвердила наличие драйвера, но не устранила проблему."
+
+  - action: "Создать BalloonService с путем D:\\balloon\\blnsvr.exe."
+    result: "Служба создалась, но не запустилась."
+    status: "failed"
+    reason: "Исполняемый файл находится во вложенной папке версии Windows и архитектуры."
+
+  - action: "Найти blnsvr.exe рекурсивным поиском на диске D:."
+    result: "Найден путь D:\\Balloon\\2k25\\amd64\\blnsvr.exe."
+    status: "successful"
+    reason: "Получен корректный путь для Windows Server 2025 x64."
+
+  - action: "Пересоздать BalloonService с путем D:\\Balloon\\2k25\\amd64\\blnsvr.exe."
+    result: "Служба запущена; Memory usage в Proxmox изменился до 63.70 процента."
+    status: "successful"
+    reason: "Корректный executable path позволил службе передавать статистику памяти."
+
+rejected_solutions:
+  - action: "Считать Host memory usage фактическим использованием RAM внутри Windows."
+    reason_rejected: "Показатель включает потребление процесса QEMU и накладные расходы виртуализации."
+    risk: "Можно ошибочно диагностировать утечку памяти или нехватку RAM."
+
+  - action: "Считать установку QEMU Guest Agent достаточной для корректной метрики памяти."
+    reason_rejected: "После установки и запуска агента показатель Memory usage не изменился."
+    risk: "Можно остановить диагностику до проверки BalloonService."
+
+  - action: "Создать BalloonService с путем D:\\balloon\\blnsvr.exe."
+    reason_rejected: "По указанному пути файл отсутствует."
+    risk: "Служба будет создана, но не запустится."
+
+  - action: "Создать BalloonService с путем для другой версии Windows или архитектуры."
+    reason_rejected: "В ISO присутствуют отдельные каталоги для версий Windows и архитектур."
+    risk: "Служба может не запуститься или работать некорректно."
+
+  - action: "Использовать qm guest info 2002."
+    reason_rejected: "В установленной версии Proxmox команда отсутствует."
+    risk: "Диагностика завершится ошибкой unknown command."
+
+dont_repeat:
+  - "Не считать Host memory usage в Proxmox фактическим использованием памяти внутри Windows."
+  - "Не считать отсутствие QEMU-GA единственной причиной после проверки, что QEMU Guest Agent установлен, запущен и отвечает на qm guest cmd."
+  - "Не создавать BalloonService с путем D:\\balloon\\blnsvr.exe."
+  - "Не создавать BalloonService с путем от другой версии Windows или другой архитектуры."
+  - "Не диагностировать утечку памяти без сравнения показателей Windows и Proxmox."
+  - "Не использовать команду qm guest info 2002 в версии Proxmox, где она отсутствует."
+
+# ============================================================
+# 12. КОМАНДЫ И КОНФИГУРАЦИЯ
+# ============================================================
+
+commands: |
+  # На узле Proxmox
+  qm config 2002
+  qm guest cmd 2002 ping
+  qm guest cmd 2002 get-osinfo
+
+  # В Windows
+  Get-Service -Name QEMU-GA
+  Get-PnpDevice | Where-Object {$_.Class -eq "System" -or $_.FriendlyName -like "*Balloon*"} | Format-Table Status, Class, FriendlyName, DeviceID
+  Get-WmiObject Win32_CDROMDrive | Select-Object Drive, VolumeName
+  Get-Service -Name "*balloon*"
+  Get-ChildItem -Path D:\ -Recurse -Filter 'blnsvr.exe' -ErrorAction SilentlyContinue | Select-Object FullName
+  sc.exe delete BalloonService
+  sc.exe create BalloonService binPath= "D:\Balloon\2k25\amd64\blnsvr.exe" start= auto
+  Start-Service -Name BalloonService
+  Get-Service -Name BalloonService
+
+  # Установка QEMU Guest Agent
+  Start-Process msiexec.exe -ArgumentList '/i D:\guest-agent\qemu-ga-x86_64.msi /qn /norestart' -Wait
+
+commands_by_system:
+  proxmox: |
+    qm config 2002
+    qm guest cmd 2002 ping
+    qm guest cmd 2002 get-osinfo
+
+  windows_powershell: |
+    Get-Service -Name QEMU-GA
+    Get-PnpDevice | Where-Object {$_.Class -eq "System" -or $_.FriendlyName -like "*Balloon*"} | Format-Table Status, Class, FriendlyName, DeviceID
+    Get-WmiObject Win32_CDROMDrive | Select-Object Drive, VolumeName
+    Get-Service -Name "*balloon*"
+    Get-ChildItem -Path D:\ -Recurse -Filter 'blnsvr.exe' -ErrorAction SilentlyContinue | Select-Object FullName
+    Start-Process msiexec.exe -ArgumentList '/i D:\guest-agent\qemu-ga-x86_64.msi /qn /norestart' -Wait
+    sc.exe delete BalloonService
+    sc.exe create BalloonService binPath= "D:\Balloon\2k25\amd64\blnsvr.exe" start= auto
+    Start-Service -Name BalloonService
+    Get-Service -Name BalloonService
+
+  linux_shell: |
+    -
+
+command_safety:
+  requires_administrator: true
+  requires_reboot: false
+  causes_downtime: false
+  modifies_data: false
+  modifies_configuration: true
+  reversible: true
+
+config_snippets:
+  main_configuration: |
+    agent: 1
+    memory: 4096
+    machine: pc-q35-11.0+pve2
+    name: AD
+    ostype: win11
+    numa: 0
+    ide0: local:iso/virtio-win.iso,media=cdrom
+    scsi0: ceph-fast:vm-2002-disk-1,iothread=1,size=100G,ssd=1
+
+  service_configuration: |
+    Service name: BalloonService
+    Executable: 'D:\Balloon\2k25\amd64\blnsvr.exe'
+    Startup type: Automatic
+    Final status: Running
+
+  before_change: |
+    QEMU-GA: отсутствует
+    BalloonService: отсутствует
+    Proxmox Memory usage: 4.36 GiB of 4.00 GiB
+    Displayed usage: 108.92%
+
+  after_change: |
+    QEMU-GA: Running
+    BalloonService: Running
+    Proxmox Memory usage: 2.55 GiB of 4.00 GiB
+    Displayed usage: 63.70%
+
+configuration_changes:
+  - parameter: "QEMU Guest Agent"
+    old_value: "Отсутствует"
+    new_value: "Установлен и запущен"
+    reason: "Обеспечить канал связи между Proxmox и гостевой ОС."
+    reversible: true
+
+  - parameter: "BalloonService"
+    old_value: "Отсутствует"
+    new_value: "Automatic; D:\\Balloon\\2k25\\amd64\\blnsvr.exe"
+    reason: "Передавать статистику использования памяти через VirtIO Balloon."
+    reversible: true
+
+# ============================================================
+# 13. ИЗМЕНЕНИЯ И ОТКАТ
+# ============================================================
+
+changes_applied:
+  - change: "Установлен QEMU Guest Agent."
+    operator: "cladkyimaffin-hue"
+    timestamp: ""
+    target: "ВМ 2002, Windows Server 2025"
+    backup_created: false
+    change_reference: ""
+
+  - change: "Создана служба BalloonService с корректным путем к blnsvr.exe."
+    operator: "cladkyimaffin-hue"
+    timestamp: ""
+    target: "ВМ 2002, Windows Server 2025"
+    backup_created: false
+    change_reference: ""
+
+  - change: "Служба BalloonService настроена на автоматический запуск и запущена."
+    operator: "cladkyimaffin-hue"
+    timestamp: ""
+    target: "ВМ 2002, Windows Server 2025"
+    backup_created: false
+    change_reference: ""
+
+rollback_available: true
+rollback_plan: |
+  В PowerShell от имени администратора удалить службу BalloonService.
+  При необходимости удалить QEMU Guest Agent штатным способом Windows.
+  Перед откатом проверить, что удаление служб не требуется для других
+  диагностических или эксплуатационных задач.
+
+rollback_commands: |
+  sc.exe delete BalloonService
+
+rollback_conditions:
+  - "BalloonService не запускается после проверки корректного пути и архитектуры."
+  - "После изменения появляются ошибки службы или ухудшается работа ВМ."
+  - "Требуется удалить компонент, установленный только для диагностики."
+
+backup:
+  created: false
+  type: "none"
+  location: ""
+  timestamp: ""
+  retention: ""
+
+# ============================================================
+# 14. ПРОВЕРКА РЕЗУЛЬТАТА
+# ============================================================
+
+success_criteria:
+  - "Служба QEMU-GA имеет статус Running."
+  - "Команда qm guest cmd 2002 get-osinfo возвращает данные."
+  - "Служба BalloonService имеет статус Running."
+  - "BalloonService использует путь D:\\Balloon\\2k25\\amd64\\blnsvr.exe."
+  - "Proxmox отображает Memory usage около фактического использования Windows."
+  - "Показатель Memory usage не отображает ошибочное значение выше 100 процентов."
+
+validation_steps:
+  - step: 1
+    action: "Проверить службу QEMU Guest Agent."
+    expected_result: "Running"
+    actual_result: "Running"
+    status: "completed"
+
+  - step: 2
+    action: "Проверить канал связи с QEMU Guest Agent."
+    expected_result: "Команда возвращает сведения о гостевой ОС."
+    actual_result: "Возвращён JSON Windows Server 2025."
+    status: "completed"
+
+  - step: 3
+    action: "Проверить службу BalloonService."
+    expected_result: "Running"
+    actual_result: "Running"
+    status: "completed"
+
+  - step: 4
+    action: "Проверить Memory usage в Proxmox."
+    expected_result: "Значение близко к фактическому использованию Windows."
+    actual_result: "2.55 GiB из 4.00 GiB, или 63.70 процента."
+    status: "completed"
+
+before_after_comparison:
+  - metric: "Proxmox Memory usage"
+    before: "4.36 GiB из 4.00 GiB"
+    after: "2.55 GiB из 4.00 GiB"
+    expected: "Корректное значение использования памяти гостевой ОС"
+    improvement: "Показатель приведён к значению, близкому к фактическому."
+    source: "Proxmox"
+
+  - metric: "Displayed usage"
+    before: "108.92%"
+    after: "63.70%"
+    expected: "Значение без ошибочного превышения 100%"
+    improvement: "Устранено некорректное отображение выше 100%."
+    source: "Proxmox"
+
+  - metric: "QEMU Guest Agent"
+    before: "Отсутствует"
+    after: "Running"
+    expected: "Running"
+    improvement: "Установлен и запущен."
+    source: "Get-Service QEMU-GA"
+
+  - metric: "BalloonService"
+    before: "Отсутствует или Stopped"
+    after: "Running"
+    expected: "Running"
+    improvement: "Служба создана, настроена и запущена."
+    source: "Get-Service -Name BalloonService"
+
+post_change_observation_period: ""
+post_change_status: "stable"
+regression_risk: "medium"
+known_side_effects:
+  - "Host memory usage может оставаться выше выделенной памяти из-за накладных расходов процесса QEMU."
+  - "Показатель Host memory usage не следует использовать как замену Memory usage гостевой ОС."
+
+# ============================================================
+# 15. БЕЗОПАСНОСТЬ И РИСКИ
+# ============================================================
+
+security_impact: "none"
+security_considerations:
+  - "Команды создания и удаления службы требуют прав администратора."
+  - "Перед удалением службы следует проверить, что она не используется другими задачами."
+  - "Не следует использовать исполняемый файл BalloonService от другой версии Windows или архитектуры."
+
+data_loss_risk: "low"
+downtime_required: false
+estimated_downtime: ""
+requires_maintenance_window: false
+
+dangerous_operations:
+  - "Не удалять QEMU Guest Agent или BalloonService без проверки их роли."
+  - "Не использовать sc.exe delete для службы без подтверждения имени службы."
+  - "Не создавать службу с неподтвержденным путем к исполняемому файлу."
+
+secrets_present: false
+secret_locations:
+  - ""
+
+# ============================================================
+# 16. ДОКАЗАТЕЛЬСТВА И ИСТОЧНИКИ
+# ============================================================
+
+evidence:
+  - type: "metric"
+    description: "До исправления Proxmox показывал 4.36 GiB из 4.00 GiB и 108.92%."
+    location: ""
+    collected_at: ""
+    collected_by: "cladkyimaffin-hue"
+    integrity_check: ""
+
+  - type: "command_output"
+    description: "PowerShell показал 3.93 GB общей RAM, 2.43 GB использованной RAM и 61.84% использования."
+    location: ""
+    collected_at: ""
+    collected_by: "cladkyimaffin-hue"
+    integrity_check: ""
+
+  - type: "command_output"
+    description: "qm config 2002 показал agent: 1 и memory: 4096."
+    location: ""
+    collected_at: ""
+    collected_by: "cladkyimaffin-hue"
+    integrity_check: ""
+
+  - type: "command_output"
+    description: "qm guest cmd 2002 get-osinfo вернул сведения о Windows Server 2025."
+    location: ""
+    collected_at: ""
+    collected_by: "cladkyimaffin-hue"
+    integrity_check: ""
+
+  - type: "command_output"
+    description: "После запуска BalloonService Get-Service показал статус Running."
+    location: ""
+    collected_at: ""
+    collected_by: "cladkyimaffin-hue"
+    integrity_check: ""
+
+  - type: "metric"
+    description: "После запуска BalloonService Proxmox показывал 2.55 GiB из 4.00 GiB и 63.70%."
+    location: ""
+    collected_at: ""
+    collected_by: "cladkyimaffin-hue"
+    integrity_check: ""
+
+source_urls:
+  - "https://github.com/cladkyimaffin-hue/korona/blob/903a086a1bc40a67415e8b0e02ac1d65fff970de/Proxmox/Proxmox%20%D0%BD%D0%B5%20%D0%BF%D1%80%D0%B0%D0%B2%D0%B8%D0%BB%D1%8C%D0%BD%D0%BE%20%D0%BE%D1%82%D0%BE%D0%B1%D1%80%D0%B0%D0%B6%D0%B0%D0%BB%D0%B8%20%D1%80%D0%B0%D1%81%D1%85%D0%BE%D0%B4%20RAM%20QEMU%20Guest%20Agent.md"
+
+urls:
+  - "https://github.com/cladkyimaffin-hue/korona/blob/659b8918e91e830a7d0154dd1ed21c6cf192f676/Proxmox/Proxmox%20%D0%BD%D0%B5%20%D0%BF%D1%80%D0%B0%D0%B2%D0%B8%D0%BB%D1%8C%D0%BD%D0%BE%20%D0%BE%D1%82%D0%BE%D0%B1%D1%80%D0%B0%D0%B6%D0%B0%D0%BB%D0%B8%20%D1%80%D0%B0%D1%81%D1%85%D0%BE%D0%B4%20RAM%20QEMU%20Guest%20Agent.md"
+  - "https://github.com/cladkyimaffin-hue/korona/tree/5a00f31944967a795e4953e9f6c8bcad57701627/Proxmox"
+
+references:
+  - title: "Предыдущая версия документа о некорректном отображении расхода RAM"
+    url: "https://github.com/cladkyimaffin-hue/korona/blob/659b8918e91e830a7d0154dd1ed21c6cf192f676/Proxmox/Proxmox%20%D0%BD%D0%B5%20%D0%BF%D1%80%D0%B0%D0%B2%D0%B8%D0%BB%D1%8C%D0%BD%D0%BE%20%D0%BE%D1%82%D0%BE%D0%B1%D1%80%D0%B0%D0%B6%D0%B0%D0%BB%D0%B8%20%D1%80%D0%B0%D1%81%D1%85%D0%BE%D0%B4%20RAM%20QEMU%20Guest%20Agent.md"
+    type: "internal_note"
+    accessed_at: "2026-09-07"
+    relevance: "Связанная версия документа с теми же результатами диагностики."
+
+github:
+  repository: "cladkyimaffin-hue/korona"
+  file_path: "Proxmox/Proxmox не правильно отображали расход RAM QEMU Guest Agent.md"
+  branch: "903a086a1bc40a67415e8b0e02ac1d65fff970de"
+  commit: "903a086a1bc40a67415e8b0e02ac1d65fff970de"
+  issue: ""
+  pull_request: ""
+  related_commits:
+    - "659b8918e91e830a7d0154dd1ed21c6cf192f676"
+
+# ============================================================
+# 17. ИНСТРУКЦИИ ДЛЯ ИИ
+# ============================================================
+
+ai_instructions:
+  primary_goal: "Диагностировать некорректное отображение расхода памяти ВМ Windows в Proxmox и проверить работу QEMU Guest Agent, VirtIO Balloon Driver и BalloonService."
+
+  use_this_document_for:
+    - "Диагностика отображения Memory usage выше 100 процентов в Proxmox."
+    - "Проверка связи с QEMU Guest Agent."
+    - "Проверка состояния VirtIO Balloon Driver."
+    - "Настройка BalloonService для Windows Server 2025."
+    - "Сравнение показателей памяти внутри Windows и в Proxmox."
+
+  do_not_use_this_document_for:
+    - "Автоматическое утверждение, что Host memory usage равен реальному использованию RAM гостевой ОС."
+    - "Установку службы с путем от другой версии Windows или архитектуры."
+    - "Диагностику других версий Windows без проверки расположения blnsvr.exe."
+    - "Использование команды qm guest info в версии Proxmox, где она отсутствует."
+    - "Диагностику реальной утечки памяти без измерения внутри гостевой ОС."
+
+  required_context:
+    - "Версия Proxmox VE."
+    - "VMID и имя виртуальной машины."
+    - "Версия и редакция Windows."
+    - "Выделенный объем памяти ВМ."
+    - "Версия virtio-win."
+    - "Наличие и буква диска с virtio-win ISO."
+    - "Точный путь к blnsvr.exe."
+
+  ask_before_recommending:
+    - "Удаление службы QEMU-GA."
+    - "Удаление службы BalloonService."
+    - "Изменение конфигурации ВМ."
+    - "Перезагрузка или остановка production-ВМ."
+    - "Использование пути к исполняемому файлу, который не проверен командой поиска."
+
+  response_requirements:
+    - "Сначала сравнить показатели памяти внутри Windows и в Proxmox."
+    - "Отделить Memory usage от Host memory usage."
+    - "Проверить QEMU Guest Agent и связь через доступную команду qm guest cmd."
+    - "Проверить VirtIO Balloon Driver."
+    - "Проверить наличие и состояние BalloonService."
+    - "Проверить путь и архитектуру blnsvr.exe."
+    - "Проверить показатель Memory usage после изменения."
+    - "Не повторять действия из dont_repeat."
+
+  confidence_limitations:
+    - "Результат подтверждён для ВМ 2002 с Windows Server 2025 Datacenter Evaluation x86_64."
+    - "Результат подтверждён для Proxmox VE 9.2.11 и virtio-win-0.1.302."
+    - "Результат для ВМ 2001 в рамках этого файла не подтверждён."
+    - "Показатель Host memory usage после исправления остаётся выше выделенной памяти."
+
+key_takeaways:
+  - "Работающий QEMU Guest Agent подтверждает связь с гостевой ОС, но сама по себе не гарантирует корректный Memory usage."
+  - "В данной конфигурации для передачи статистики памяти требуется запущенная служба BalloonService."
+  - "Для Windows Server 2025 x64 использован путь D:\\Balloon\\2k25\\amd64\\blnsvr.exe."
+  - "Показатель изменился с 4.36 GiB и 108.92% до 2.55 GiB и 63.70% после запуска BalloonService."
+  - "Host memory usage может оставаться выше выделенной памяти из-за накладных расходов процесса QEMU."
+  - "Результаты внутри Windows нужно сравнивать с Memory usage, а не автоматически с Host memory usage."
+
+assumptions:
+  - "ВМ 2002 использует Windows Server 2025 Datacenter Evaluation x86_64."
+  - "ВМ 2002 имеет VMID 2002 и выделенные 4096 MiB RAM."
+  - "VirtIO ISO virtio-win-0.1.302 подключен к гостевой ОС как диск D:."
+  - "Для Windows Server 2025 используется файл D:\\Balloon\\2k25\\amd64\\blnsvr.exe."
+  - "Показатель 63.70% из 4.00 GiB зафиксирован после запуска BalloonService."
+  - "Результат для ВМ 2001 не подтвержден в рамках данного файла."
+
+open_questions:
+  - "Какой точный пакет или версия QEMU Guest Agent была установлена?"
+  - "Какой точный статус Memory usage сохраняется после перезагрузки ВМ?"
+  - "Какой результат настройки BalloonService получен на ВМ 2001?"
+  - "Требуется ли оставить VirtIO ISO подключенным после установки компонентов?"
+
+# ============================================================
+# 18. КАЧЕСТВО ДАННЫХ
+# ============================================================
+
+data_quality:
+  completeness: "partial"
+  accuracy: "verified"
+  freshness: "current"
+  reproducibility: "partially_reproducible"
+  source_quality: "primary"
+
+missing_data:
+  - "Точные время и часовой пояс событий не указаны."
+  - "Не указана точная версия Proxmox VE в metadata исходного файла, кроме значения 9.2.11."
+  - "Не указана точная версия QEMU Guest Agent."
+  - "Не указаны IP-адрес, FQDN и сетевые параметры ВМ 2002."
+  - "Не приведён полный вывод команды qm guest cmd 2002 ping."
+  - "Не указан результат после перезагрузки ВМ."
+  - "Не указан результат аналогичных изменений для ВМ 2001."
+  - "Не указано, был ли создан backup перед изменением служб."
+
+uncertainties:
+  - "В исходном документе не указано, является ли BalloonService официальным компонентом virtio-win или способом ручного запуска blnsvr.exe."
+  - "Не указан точный механизм, которым Proxmox получает показатель Memory usage после запуска BalloonService."
+  - "Не указано, сохраняется ли корректный показатель после отключения virtio-win ISO."
+  - "Не указано, требуется ли перезагрузка Windows после установки или изменения служб."
+
+needs_follow_up: true
+follow_up_tasks:
+  - task: "Проверить состояние QEMU-GA и BalloonService после перезагрузки ВМ 2002"
+    owner: ""
+    due_date: ""
+    status: "pending"
+
+  - task: "Проверить, сохраняется ли показатель Memory usage около 63.70% после отключения virtio-win ISO"
+    owner: ""
+    due_date: ""
+    status: "pending"
+
+  - task: "Отдельно проверить ВМ 2001 и не переносить на неё результат без подтверждения"
+    owner: ""
+    due_date: ""
+    status: "pending"
+
+# ============================================================
+# 19. АУДИТ ДОКУМЕНТА
+# ============================================================
+
+audit:
+  created_by: "cladkyimaffin-hue"
+  created_at: "2026-09-02"
+  last_modified_by: "cladkyimaffin-hue"
+  last_modified_at: "2026-09-07"
+  reviewed_by: "cladkyimaffin-hue"
+  reviewed_at: ""
+  review_result: "approved"
+
+change_history:
+  - version: "1.0"
+    date: "2026-09-07"
+    author: "cladkyimaffin-hue"
+    changes:
+      - "Зафиксирована диагностика некорректного отображения RAM для ВМ 2002."
+      - "Добавлены результаты установки QEMU Guest Agent."
+      - "Добавлены результаты создания и запуска BalloonService."
+      - "Зафиксирован корректный путь D:\\Balloon\\2k25\\amd64\\blnsvr.exe."
+      - "Зафиксировано изменение Memory usage до 63.70%."
+
+# ============================================================
+# 20. ФИНАЛЬНЫЕ ПОЛЯ
+# ============================================================
+
+review_notes: |
+  Результат подтверждён для ВМ 2002 с Windows Server 2025 Datacenter Evaluation,
+  Proxmox VE 9.2.11 и virtio-win-0.1.302. При повторении процедуры необходимо
+  сначала проверить версию Windows, архитектуру и фактическое расположение
+  blnsvr.exe. Host memory usage следует отделять от Memory usage гостевой ОС.
+
+notes: |
+  ВМ 2001 упоминается в ходе диагностики, однако результат настройки для неё
+  в исходном файле не подтверждён. В исходном материале также указано,
+  что на ВМ 2001 был отмонтирован VirtIO ISO, но это не является результатом
+  исправления для ВМ 2002.
 ---
+
 
 ### USER
 https://github.com/cladkyimaffin-hue/korona/tree/5a00f31944967a795e4953e9f6c8bcad57701627/Proxmox
