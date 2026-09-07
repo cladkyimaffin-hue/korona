@@ -71,7 +71,7 @@ AI-INSTRUCTIONS.md.
 | `Proxmox/` | Proxmox VE, ВМ, шаблоны, кластер, Ceph |
 | `Proxmox/INDEX.md` | Быстрый индекс документов Proxmox |
 | `Proxmox/Настройка ВМ Windows Server 2022 шаблона.md` | Создание и подготовка шаблона Windows |
-| `Proxmox/Клонирование шаблона ВМ 2001 (win-1c-app-01).md` | Создание ВМ 2001 из шаблона 2000 |
+| `Proxmox/Клонирование шаблона ВМ 2001 (Srv1c).md` | Создание ВМ 2001 из шаблона 2000 |
 | `Proxmox/Создание Ceph №1.md` | Создание и настройка Ceph |
 | `Proxmox/pve01+pve02+Qdevice.md` | Кластер Proxmox и QDevice |
 | `Proxmox/Установка Proxmox VE на 3 сервера...md` | Общая установка и архитектура |
@@ -133,7 +133,7 @@ AI-INSTRUCTIONS.md.
 Система: Proxmox VE
 Узел: pve01
 VM ID: 2001
-Имя: win-1c-app-01
+Имя: Srv1c
 ОС: Windows Server 2022
 Хранилище: ceph-fast
 Роль: сервер приложений 1С
@@ -144,7 +144,7 @@ VM ID: 2001
 text
 
 
-Proxmox/Клонирование шаблона ВМ 2001 (win-1c-app-01).md
+Proxmox/Клонирование шаблона ВМ 2001 (Srv1c).md
 Если вопрос относится к шаблону Windows, читать:
 
 text
@@ -225,7 +225,7 @@ TPM	TPM 2.0
 
 Параметр	Значение
 VM ID	2001
-Имя	win-1c-app-01
+Имя	Srv1c
 Роль	Сервер приложений 1С:ERP
 Исходный шаблон	2000 / win2022-template
 Тип клона	Full Clone
@@ -297,7 +297,7 @@ Recovery-раздел
 text
 
 
-Proxmox/Клонирование шаблона ВМ 2001 (win-1c-app-01).md
+Proxmox/Клонирование шаблона ВМ 2001 (Srv1c).md
 Искать разделы:
 
 «Тип клона»;
