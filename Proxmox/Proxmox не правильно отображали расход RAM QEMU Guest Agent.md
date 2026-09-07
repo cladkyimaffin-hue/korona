@@ -1,3 +1,153 @@
+---
+date_created: 2026-09-02
+date_modified: 2026-09-07
+author: cladkyimaffin-hue
+status: completed
+
+target_system: "Proxmox VE 9.2.11, узел pve01; виртуальная машина 2002 AD с Windows Server 2025 Datacenter Evaluation; VMID 2001 win-1c упоминается в ходе диагностики"
+environment: production
+
+category: troubleshooting
+severity: medium
+problem: "Proxmox отображал использование памяти виртуальной машины 2002 выше 100%: 4.36 GiB из 4.00 GiB, несмотря на фактическое использование Windows около 2.43 GiB."
+solution: "Установлены и запущены QEMU Guest Agent и BalloonService внутри Windows Server 2025. После запуска BalloonService Proxmox начал отображать фактическое использование памяти: около 2.55 GiB из 4.00 GiB, или 63.70%."
+root_cause: "QEMU Guest Agent первоначально отсутствовал, а VirtIO Balloon Driver не передавал в Proxmox статистику использования памяти из гостевой ОС из-за отсутствия службы BalloonService. В результате Proxmox отображал потребление процесса QEMU на хосте вместе с накладными расходами виртуализации."
+
+ai_summary: "На ВМ 2002 (AD) Proxmox показывал 108.92% использования памяти, хотя Windows использовала около 61.84% RAM. QEMU Guest Agent был установлен и отвечал на запросы, но этого оказалось недостаточно для корректной метрики памяти. После установки и запуска BalloonService из virtio-win-0.1.302 показатель изменился на корректные 63.70%."
+key_takeaways:
+  - "Работающий QEMU Guest Agent подтверждает связь между Proxmox и гостевой ОС, но сама по себе не гарантирует корректную метрику Memory usage."
+  - "Для передачи статистики памяти в данной конфигурации требуется запущенная служба BalloonService."
+  - "После запуска BalloonService значение изменилось с 4.36 GiB из 4.00 GiB до 2.55 GiB из 4.00 GiB."
+  - "Host memory usage может оставаться выше выделенной памяти из-за накладных расходов процесса QEMU и не является показателем реального использования RAM внутри Windows."
+
+dont_repeat:
+  - "Не считать значение Host memory usage в Proxmox фактическим использованием памяти внутри Windows."
+  - "Не считать отсутствие службы QEMU-GA единственной причиной некорректного отображения, если QEMU Guest Agent уже установлен, запущен и отвечает на qm guest cmd."
+  - "Не устанавливать BalloonService с путем D:\\Balloon\\blnsvr.exe, поскольку в virtio-win-0.1.302 исполняемый файл находится во вложенной папке версии Windows."
+  - "Не создавать службу BalloonService с путем для другой архитектуры или версии Windows."
+  - "Не диагностировать ситуацию как утечку памяти без сравнения показателей внутри Windows и в Proxmox."
+  - "Не использовать команду qm guest info, поскольку в установленной версии Proxmox такая команда отсутствует."
+
+assumptions:
+  - "ВМ 2002 использует Windows Server 2025 Datacenter Evaluation x86_64."
+  - "ВМ 2002 имеет VMID 2002 и выделенные 4096 MiB RAM."
+  - "VirtIO ISO virtio-win-0.1.302 подключен к гостевой ОС как диск D:."
+  - "Для Windows Server 2025 используется файл D:\\Balloon\\2k25\\amd64\\blnsvr.exe."
+  - "Показатель 63.70% из 4.00 GiB зафиксирован после запуска BalloonService."
+  - "Результат для ВМ 2001 не подтвержден в рамках данного файла."
+
+commands: |
+  # На узле Proxmox проверить конфигурацию ВМ
+  qm config 2002
+
+  # Проверить связь Proxmox с QEMU Guest Agent
+  qm guest cmd 2002 ping
+  qm guest cmd 2002 get-osinfo
+
+  # В Windows проверить службу QEMU Guest Agent
+  Get-Service -Name QEMU-GA
+
+  # В Windows проверить фактическое использование памяти
+  Get-CimInstance Win32_OperatingSystem |
+    Select-Object TotalVisibleMemorySize, FreePhysicalMemory |
+    ForEach-Object {
+      [PSCustomObject]@{
+        'Total RAM (GB)' = [math]::Round($_.TotalVisibleMemorySize / 1MB, 2)
+        'Free RAM (GB)' = [math]::Round($_.FreePhysicalMemory / 1MB, 2)
+        'Used RAM (GB)' = [math]::Round(
+          ($_.TotalVisibleMemorySize - $_.FreePhysicalMemory) / 1MB, 2
+        )
+        'Usage %' = [math]::Round(
+          ($_.TotalVisibleMemorySize - $_.FreePhysicalMemory) /
+          $_.TotalVisibleMemorySize * 100, 2
+        )
+      }
+    } |
+    Format-Table
+
+  # Определить букву диска с virtio-win ISO
+  Get-WmiObject Win32_CDROMDrive |
+    Select-Object Drive, VolumeName
+
+  # Установить QEMU Guest Agent из virtio-win ISO
+  Start-Process msiexec.exe `
+    -ArgumentList '/i D:\guest-agent\qemu-ga-x86_64.msi /qn /norestart' `
+    -Wait
+
+  # Проверить наличие исполняемого файла BalloonService
+  Get-ChildItem -Path D:\ -Recurse -Filter 'blnsvr.exe' `
+    -ErrorAction SilentlyContinue |
+    Select-Object FullName
+
+  # Удалить ошибочно созданную службу
+  sc.exe delete BalloonService
+
+  # Создать BalloonService для Windows Server 2025 x64
+  sc.exe create BalloonService `
+    binPath= "D:\Balloon\2k25\amd64\blnsvr.exe" `
+    start= auto
+
+  # Запустить службу и проверить ее статус
+  Start-Service -Name BalloonService
+  Get-Service -Name BalloonService
+
+config_snippets:
+  proxmox_vm_2002: |
+    agent: 1
+    memory: 4096
+    machine: pc-q35-11.0+pve2
+    name: AD
+    ostype: win11
+    numa: 0
+    ide0: local:iso/virtio-win.iso,media=cdrom
+    scsi0: ceph-fast:vm-2002-disk-1,iothread=1,size=100G,ssd=1
+
+  balloon_service: |
+    Service name: BalloonService
+    Executable: D:\Balloon\2k25\amd64\blnsvr.exe
+    Startup type: Automatic
+    Final status: Running
+
+  result: |
+    Before:
+      Proxmox Memory usage: 4.36 GiB of 4.00 GiB
+      Displayed usage: 108.92%
+
+    Inside Windows before correction:
+      Total RAM: 3.93 GB
+      Used RAM: 2.43 GB
+      Usage: 61.84%
+
+    After BalloonService startup:
+      Proxmox Memory usage: 2.55 GiB of 4.00 GiB
+      Displayed usage: 63.70%
+
+urls:
+  - "https://github.com/cladkyimaffin-hue/korona/blob/659b8918e91e830a7d0154dd1ed21c6cf192f676/Proxmox/Proxmox%20%D0%BD%D0%B5%20%D0%BF%D1%80%D0%B0%D0%B2%D0%B8%D0%BB%D1%8C%D0%BD%D0%BE%20%D0%BE%D1%82%D0%BE%D0%B1%D1%80%D0%B0%D0%B6%D0%B0%D0%BB%D0%B8%20%D1%80%D0%B0%D1%81%D1%85%D0%BE%D0%B4%20RAM%20QEMU%20Guest%20Agent.md"
+
+related_files:
+  - "Proxmox разобраться в причине заполнения памяти.md"
+depends_on: []
+superseded_by: ""
+tags:
+  - "Proxmox"
+  - "QEMU Guest Agent"
+  - "VirtIO"
+  - "BalloonService"
+  - "Windows Server 2025"
+  - "управление памятью"
+  - "диагностика"
+  - "VM 2002"
+  - "AD"
+
+last_incident: 2026-09-01
+next_review: 2026-12-01
+valid_until: 2027-01-01
+
+reviewer: "cladkyimaffin-hue"
+approval_status: approved
+---
+
 ### USER
 https://github.com/cladkyimaffin-hue/korona/tree/5a00f31944967a795e4953e9f6c8bcad57701627/Proxmox
 разобраться в причине заполнения памяти
@@ -954,3 +1104,6 @@ PS C:\WINDOWS\system32>
 1. Вы упомянули, что на ВМ 2001 (win-1c) отмонтировали VirtIO ISO. Подтвердите: на ВМ 2001 сейчас нужно также установить QEMU Guest Agent и BalloonService? Если да, начнём с проверки статуса службы QEMU-GA на этой ВМ.
 
 Жду вашего подтверждения.
+
+
+Метаданные отражают фактический результат диагностики: проблема была не в утечке памяти Windows, а в том, что Proxmox не получал статистику гостевой памяти через BalloonService. Установка QEMU Guest Agent обеспечила связь с гостем, а запуск BalloonService исправил отображение показателя Memory usage.
