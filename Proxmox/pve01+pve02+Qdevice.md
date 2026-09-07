@@ -1,63 +1,1075 @@
 ---
-# === БАЗОВАЯ ИНФОРМАЦИЯ ===
+# ============================================================
+# 1. ИДЕНТИФИКАЦИЯ ДОКУМЕНТА
+# ============================================================
+
+document_id: "DOC-2026-08-30-001"
+title: "Настройка двухузлового кластера Proxmox VE с Corosync QDevice"
+slug: "nastroyka-dvukhuzlovogo-klastera-proxmox-ve-s-corosync-qdevice"
+document_type: "runbook"
+language: "ru"
+version: "1.0"
+schema_version: "1.0"
+status: "completed"
+confidentiality: "internal"
+priority: "critical"
+
 date_created: 2026-08-30
 date_modified: 2026-09-02
-author: cladkyimaffin-hue
-status: "completed"
-# === КОНТЕКСТ СИСТЕМЫ ===
-target_system: "Proxmox VE Cluster (pve01, pve02) + Debian QDevice Host"
-environment: "production"
-# === БЫСТРАЯ КЛАССИФИКАЦИЯ ===
+date_completed: ""
+last_reviewed: ""
+next_review: 2026-12-01
+valid_until: 2027-01-01
+
+author: "cladkyimaffin-hue"
+maintainer: ""
+reviewer: "cladkyimaffin-hue"
+owner_team: ""
+approval_status: "approved"
+
+# ============================================================
+# 2. КЛАССИФИКАЦИЯ И ПОИСК
+# ============================================================
+
 category: "setup"
-severity: "critical"
-problem: "Кластер из двух узлов теряет кворум при сетевом разделении, что блокирует HA и управление."
-solution: "Создание кластера и добавление независимого QDevice на третьем хосте для обеспечения математического кворума (3 голоса)."
-root_cause: "Четное количество узлов (2) не может обеспечить кворум (N/2 + 1) при потере связи между ними."
-# === AI-СПЕЦИФИЧНЫЕ ПОЛЯ ===
-ai_summary: "Пошаговая инструкция по объединению двух серверов Proxmox в кластер и настройке Corosync QDevice на отдельном хосте. Описывает установку пакетов, настройку SSH и проверку статуса кворума."
-key_takeaways:
-  - "QDevice должен находиться на независимом третьем хосте (не на pve01 или pve02)."
-  - "После настройки Expected votes становится 3, Quorum = 2, что позволяет кластеру выживать при потере 1 узла."
-dont_repeat:
-  - "Не предлагать команду `pvecm add qdevice <IP>` — она устарела и вызывает ошибку 'too many arguments'. Использовать `pvecm qdevice setup <IP>`."
-  - "Не предлагать создание кластера из 2 нод без QDevice или третьего узла для production-среды."
-assumptions:
-  - "Хост QDevice имеет статический IP и доступен по TCP порту 5403 с узлов Proxmox."
-# === АРТЕФАКТЫ ===
-commands: |
-  # На хосте QDevice
-  apt update && apt install -y corosync-qnetd
-  systemctl enable --now corosync-qnetd
-  # На узлах Proxmox
-  apt update && apt install -y corosync-qdevice
-  # Инициализация на pve01
-  pvecm qdevice setup 192.168.202.251
-  # Проверка
-  pvecm status
-config_snippets:
-  expected_status: |
-    Expected votes: 3
-    Quorum: 2
-    Flags: Quorate Qdevice
-urls: []
-# === СВЯЗИ ===
-related_files:
-  - "INDEX.md"
-  - "Добавить qdevice.md"
-depends_on: []
-superseded_by: ""
+domain: "virtualization"
+subdomain: "cluster-quorum"
+
 tags:
   - "ProxmoxVE"
   - "QDevice"
   - "Corosync"
   - "Quorum"
-# === ВРЕМЕННОЙ КОНТЕКСТ ===
+  - "pve01"
+  - "pve02"
+  - "Debian"
+  - "high-availability"
+
+keywords:
+  - "двухузловой кластер"
+  - "Corosync QDevice"
+  - "corosync-qnetd"
+  - "corosync-qdevice"
+  - "кворум Proxmox"
+  - "pvecm qdevice setup"
+
+aliases:
+  - "Добавление QDevice в кластер Proxmox"
+  - "Кластер pve01 pve02 с QDevice"
+  - "Настройка внешнего голоса кворума"
+
+related_topics:
+  - "Corosync"
+  - "votequorum"
+  - "HA Proxmox VE"
+  - "сетевое разделение"
+  - "QNetd"
+  - "SSH"
+  - "кластер Proxmox VE"
+
+# ============================================================
+# 3. КРАТКОЕ ОПИСАНИЕ
+# ============================================================
+
+problem: "Кластер из двух узлов Proxmox VE теряет кворум при сетевом разделении, что блокирует HA и управление."
+
+summary: "Узлы pve01 и pve02 были объединены в кластер Proxmox VE с именем krnn. После добавления второго узла кластер имел два голоса и требовал наличия обоих узлов для кворума. На отдельном хосте Qdevice с Debian GNU/Linux 13 был установлен corosync-qnetd, а на узлах Proxmox установлен corosync-qdevice. Попытка подключения QDevice командой pvecm add qdevice 192.168.202.251 завершилась ошибкой 400 too many arguments; корректная команда для данной версии Proxmox указана как pvecm qdevice setup 192.168.202.251."
+
+ai_summary: "Документ описывает создание кластера Proxmox VE krnn из pve01 и pve02 и настройку внешнего Corosync QDevice на отдельном Debian-хосте Qdevice с IP 192.168.202.251. QDevice должен находиться вне узлов Proxmox; для PVE 9.2 нужно использовать pvecm qdevice setup 192.168.202.251, а не pvecm add qdevice 192.168.202.251."
+
+business_impact: "Без QDevice потеря одного из двух узлов приводит к потере кворума и блокирует операции управления кластером и HA."
+
+technical_impact: "Добавление QDevice должно увеличить ожидаемое количество голосов до 3 и сохранить кворум при отказе одного узла Proxmox."
+
+user_impact: "Администратор получает возможность управлять кластером при доступности одного узла Proxmox и QDevice."
+
+severity: "critical"
+incident_status: "monitoring"
+
+# ============================================================
+# 4. СИСТЕМА И ОКРУЖЕНИЕ
+# ============================================================
+
+environment: "production"
+system_role: "Двухузловой кластер Proxmox VE с внешним Corosync QDevice"
+system_name: "krnn"
+hostname: ""
+fqdn: ""
+asset_id: ""
+vm_id: ""
+cluster: "krnn"
+node: ""
+
+operating_system:
+  name: "Proxmox VE"
+  version: "9.2.9"
+  edition: ""
+  architecture: ""
+  build: "aa93fdab516e230b"
+  language: ""
+  timezone: "Europe/Moscow"
+
+platform:
+  name: "Proxmox VE"
+  version: "9.2.9"
+  node_version: "7.0.14-9-pve"
+  kernel: "7.0.14-9-pve"
+  hypervisor: "QEMU/KVM"
+  machine_type: ""
+  firmware: ""
+
+network:
+  ip_addresses:
+    - "192.168.202.121"
+    - "192.168.202.179"
+    - "192.168.202.251"
+  mac_addresses:
+    - ""
+  vlan: ""
+  subnet: "192.168.200.0/22"
+  gateway: "192.168.200.1"
+  dns_servers:
+    - ""
+  reverse_proxy: ""
+  firewall_zone: ""
+
+hardware:
+  cpu_model: ""
+  cpu_sockets: ""
+  cpu_cores: ""
+  cpu_threads: ""
+  memory_allocated: ""
+  memory_type: ""
+  storage:
+    - type: ""
+      name: ""
+      size: ""
+      filesystem: ""
+      mount_point: ""
+
+# ============================================================
+# 5. КОМПОНЕНТЫ И ВЕРСИИ
+# ============================================================
+
+components:
+  - name: "pve01"
+    type: "Proxmox node"
+    version: "9.2.9"
+    status_before: "standalone"
+    status_after: "cluster_member"
+    configuration: "IP 192.168.202.121/22; hostname pve01.krnn.ru."
+
+  - name: "pve02"
+    type: "Proxmox node"
+    version: "9.2.9"
+    status_before: "standalone"
+    status_after: "cluster_member"
+    configuration: "IP 192.168.202.179/22; hostname pve02.krnn.ru."
+
+  - name: "corosync-qnetd"
+    type: "service"
+    version: ""
+    status_before: "not_installed"
+    status_after: "active"
+    configuration: "Работает на Qdevice.krnn.ru, IP 192.168.202.251."
+
+  - name: "corosync-qdevice"
+    type: "package"
+    version: "3.0.3-2"
+    status_before: "not_installed"
+    status_after: "installed"
+    configuration: "Установлен на pve01 и pve02."
+
+dependencies:
+  - name: "Debian GNU/Linux"
+    version: "13 (trixie)"
+    required: true
+    purpose: "Операционная система отдельного QDevice-хоста."
+
+  - name: "corosync-qnetd"
+    version: ""
+    required: true
+    purpose: "Серверная часть внешнего QDevice."
+
+  - name: "corosync-qdevice"
+    version: "3.0.3-2"
+    required: true
+    purpose: "Клиентская часть QDevice на узлах Proxmox."
+
+related_files:
+  - "INDEX.md"
+  - "Добавить qdevice.md"
+
+depends_on:
+  - ""
+
+supersedes: ""
+superseded_by: ""
+
+# ============================================================
+# 6. ВРЕМЕННАЯ ШКАЛА
+# ============================================================
+
+timeline:
+  detected_at: "2026-08-30"
+  reported_at: ""
+  investigation_started_at: ""
+  mitigation_started_at: ""
+  resolved_at: ""
+  closed_at: ""
+
+  events:
+    - timestamp: ""
+      event: "Проверены версии Proxmox VE на pve01 и pve02."
+      actor: "cladkyimaffin-hue"
+      evidence: "pve-manager/9.2.9/aa93fdab516e230b; kernel 7.0.14-9-pve."
+
+    - timestamp: ""
+      event: "Создан кластер Proxmox VE с именем krnn на pve01."
+      actor: "cladkyimaffin-hue"
+      evidence: "pvecm create krnn."
+
+    - timestamp: ""
+      event: "pve02 присоединён к кластеру krnn."
+      actor: "cladkyimaffin-hue"
+      evidence: "successfully added node 'pve02' to cluster."
+
+    - timestamp: ""
+      event: "На Qdevice установлен и запущен corosync-qnetd."
+      actor: "cladkyimaffin-hue"
+      evidence: "systemctl status corosync-qnetd.service: active (running)."
+
+    - timestamp: ""
+      event: "На pve01 и pve02 установлен corosync-qdevice версии 3.0.3-2."
+      actor: "cladkyimaffin-hue"
+      evidence: "Status: install ok installed."
+
+    - timestamp: ""
+      event: "Попытка подключения QDevice командой pvecm add qdevice 192.168.202.251 завершилась ошибкой."
+      actor: "cladkyimaffin-hue"
+      evidence: "400 too many arguments."
+
 last_incident: 2026-08-30
-next_review: 2026-12-01
-valid_until: 2027-01-01
-# === ОТВЕТСТВЕННОСТЬ ===
-reviewer: "cladkyimaffin-hue"
-approval_status: "approved"
+incident_duration: ""
+recurrence_count: 0
+recurrence_pattern: ""
+
+# ============================================================
+# 7. СИМПТОМЫ И ФАКТИЧЕСКИЕ НАБЛЮДЕНИЯ
+# ============================================================
+
+symptoms:
+  - "При сетевом разделении двух узлов кластер может потерять кворум."
+  - "После объединения двух узлов Expected votes равен 2."
+  - "Команда pvecm add qdevice 192.168.202.251 завершилась ошибкой 400 too many arguments."
+  - "Подключение QDevice в исходном протоколе не подтверждено."
+
+observed_behavior:
+  - metric: "Количество узлов Proxmox"
+    value_before: "1"
+    value_after: "2"
+    expected_value: "2"
+    unit: "узла"
+    source: "pvecm status"
+    timestamp: ""
+
+  - metric: "Expected votes без QDevice"
+    value_before: "1"
+    value_after: "2"
+    expected_value: "3"
+    unit: "голоса"
+    source: "pvecm status"
+    timestamp: ""
+
+  - metric: "Quorum без QDevice"
+    value_before: "1"
+    value_after: "2"
+    expected_value: "2"
+    unit: "голоса"
+    source: "pvecm status"
+    timestamp: ""
+
+  - metric: "Связность Qdevice с pve01"
+    value_before: ""
+    value_after: "0% packet loss"
+    expected_value: "0% packet loss"
+    unit: ""
+    source: "ping"
+    timestamp: ""
+
+  - metric: "Связность Qdevice с pve02"
+    value_before: ""
+    value_after: "0% packet loss"
+    expected_value: "0% packet loss"
+    unit: ""
+    source: "ping"
+    timestamp: ""
+
+expected_behavior:
+  - "Кластер krnn состоит из pve01 и pve02."
+  - "QDevice работает на независимом Debian-хосте."
+  - "После успешной настройки Expected votes равен 3."
+  - "После успешной настройки Quorum равен 2."
+  - "В pvecm status присутствует флаг Qdevice."
+  - "Оставшийся узел и QDevice сохраняют кворум при потере одного узла."
+
+actual_behavior:
+  - "Кластер krnn из двух узлов создан и подтверждён."
+  - "corosync-qnetd на Qdevice работает."
+  - "corosync-qdevice на pve01 и pve02 установлен."
+  - "Команда pvecm add qdevice 192.168.202.251 отклонена синтаксисом."
+  - "Финальное подключение QDevice в исходном файле не подтверждено."
+
+affected_services:
+  - name: "Corosync"
+    impact: "Управляет членством и кворумом кластера."
+    availability: "available"
+
+  - name: "Proxmox cluster management"
+    impact: "Зависит от наличия кворума."
+    availability: "degraded"
+
+  - name: "HA"
+    impact: "Может быть заблокирован при потере кворума."
+    availability: "unknown"
+
+  - name: "corosync-qnetd"
+    impact: "Предоставляет внешний голос кворума."
+    availability: "available"
+
+# ============================================================
+# 8. ПРОБЛЕМА, РЕШЕНИЕ И ПРИЧИНА
+# ============================================================
+
+problem_statement: |
+  Требуется объединить узлы pve01 и pve02 в кластер Proxmox VE
+  с именем krnn и добавить внешний Corosync QDevice на отдельном
+  Debian-хосте Qdevice.krnn.ru с IP 192.168.202.251. Двухузловой
+  кластер без третьего голоса теряет кворум при недоступности одного
+  из узлов или при сетевом разделении.
+
+solution: |
+  На pve01 создан кластер krnn командой pvecm create krnn.
+  Узел pve02 присоединён командой pvecm add 192.168.202.121.
+  На Qdevice установлен corosync-qnetd, а служба corosync-qnetd.service
+  включена и запущена. На pve01 и pve02 установлен пакет
+  corosync-qdevice версии 3.0.3-2. Для подключения QDevice встроенная
+  справка pvecm указывает команду pvecm qdevice setup 192.168.202.251.
+  Фактическое успешное выполнение этой команды в исходном файле не показано.
+
+root_cause: |
+  Чётное количество узлов не обеспечивает кворум при потере связи
+  между узлами: для двух голосов требуется кворум 2. Дополнительная
+  причина незавершённой настройки — использование неподходящей команды
+  pvecm add qdevice 192.168.202.251, которая в Proxmox VE 9.2 завершилась
+  ошибкой 400 too many arguments.
+
+contributing_factors:
+  - "В кластере первоначально было только два узла."
+  - "QDevice размещён как отдельный компонент, но его подключение ещё не подтверждено."
+  - "Команда подключения QDevice была первоначально приведена с ошибочным синтаксисом."
+  - "Финальный статус pvecm status после подключения QDevice отсутствует."
+
+trigger:
+  type: "configuration_change"
+  description: "Создание двухузлового кластера Proxmox VE и необходимость сохранить кворум при потере одного узла."
+
+resolution_confidence: "medium"
+evidence_level: "partially_verified"
+
+# ============================================================
+# 9. ДИАГНОСТИКА
+# ============================================================
+
+diagnostic_method: |
+  Проверены версии Proxmox VE, отсутствие существующего кластера,
+  разрешение имён, статическая адресация, сетевой обмен между узлами,
+  доступность SSH, наличие VM и контейнеров, синхронизация времени,
+  состояние кворума, установка пакетов и состояние службы qnetd.
+  Дополнительно использована встроенная справка pvecm для определения
+  корректной команды настройки QDevice.
+
+diagnostic_steps:
+  - step: 1
+    action: "Проверить версию Proxmox VE на обоих узлах."
+    command: "pveversion"
+    expected_result: "Одинаковые версии pve-manager и ядра."
+    actual_result: "pve-manager/9.2.9/aa93fdab516e230b; kernel 7.0.14-9-pve на обоих узлах."
+    conclusion: "Версии совпадают."
+    status: "completed"
+    evidence: "Вывод pveversion с pve01 и pve02."
+
+  - step: 2
+    action: "Проверить отсутствие существующего кластера."
+    command: "pvecm status 2>&1"
+    expected_result: "Ошибка об отсутствии /etc/pve/corosync.conf."
+    actual_result: "Файл corosync.conf отсутствовал."
+    conclusion: "Узлы были standalone."
+    status: "completed"
+    evidence: "Вывод pvecm status."
+
+  - step: 3
+    action: "Проверить тип назначения IP."
+    command: "cat /etc/network/interfaces; pgrep -a dhclient || echo \"dhclient не запущен\""
+    expected_result: "Статические IP; DHCP-клиент не запущен."
+    actual_result: "pve01 192.168.202.121/22 и pve02 192.168.202.179/22; DHCP-клиент не запущен."
+    conclusion: "Адреса статические."
+    status: "completed"
+    evidence: "Выводы /etc/network/interfaces и pgrep."
+
+  - step: 4
+    action: "Проверить связность между узлами."
+    command: "ping -c 3 -W 2 <peer-ip>; ss -tln 'sport = :22'"
+    expected_result: "0% packet loss; SSH слушает порт 22."
+    actual_result: "Связность подтверждена; SSH доступен."
+    conclusion: "Сетевые предусловия выполнены."
+    status: "completed"
+    evidence: "Вывод ping и ss."
+
+  - step: 5
+    action: "Проверить наличие VM, контейнеров и синхронизацию времени."
+    command: "qm list; pct list; timedatectl"
+    expected_result: "Нет конфликтующих гостей; NTP активен."
+    actual_result: "Гостей нет; время синхронизировано; часовой пояс Europe/Moscow."
+    conclusion: "Предусловия выполнены."
+    status: "completed"
+    evidence: "Выводы qm list, pct list и timedatectl."
+
+  - step: 6
+    action: "Создать кластер на pve01."
+    command: "pvecm create krnn"
+    expected_result: "Кластер создан."
+    actual_result: "Созданы authkey и corosync.conf; кластер имеет один узел."
+    conclusion: "Создание кластера успешно."
+    status: "completed"
+    evidence: "Вывод pvecm create и pvecm status."
+
+  - step: 7
+    action: "Добавить pve02 в кластер."
+    command: "pvecm add 192.168.202.121"
+    expected_result: "pve02 добавлен; Nodes: 2; Quorate: Yes."
+    actual_result: "Узел успешно добавлен; Expected votes: 2; Quorum: 2."
+    conclusion: "Двухузловой кластер работает."
+    status: "completed"
+    evidence: "successfully added node 'pve02' to cluster."
+
+  - step: 8
+    action: "Проверить Qdevice-хост."
+    command: "hostname -f; hostname -I; grep PRETTY_NAME /etc/os-release"
+    expected_result: "Отдельный Debian-хост с доступным IP."
+    actual_result: "Qdevice.krnn.ru; 192.168.202.251; Debian GNU/Linux 13 (trixie)."
+    conclusion: "Qdevice-хост идентифицирован."
+    status: "completed"
+    evidence: "Вывод команд на Qdevice."
+
+  - step: 9
+    action: "Установить серверную часть QDevice."
+    command: "apt update && apt install corosync-qnetd -y"
+    expected_result: "Пакет установлен и служба запущена."
+    actual_result: "corosync-qnetd.service active (running), enabled."
+    conclusion: "Серверная часть готова."
+    status: "completed"
+    evidence: "systemctl status corosync-qnetd.service."
+
+  - step: 10
+    action: "Установить клиентскую часть QDevice."
+    command: "apt update && apt install corosync-qdevice -y"
+    expected_result: "Пакет установлен на pve01 и pve02."
+    actual_result: "corosync-qdevice 3.0.3-2; install ok installed."
+    conclusion: "Клиентская часть установлена."
+    status: "completed"
+    evidence: "dpkg -s corosync-qdevice."
+
+  - step: 11
+    action: "Определить корректную команду настройки QDevice."
+    command: "pvecm help 2>&1"
+    expected_result: "В справке присутствует pvecm qdevice setup."
+    actual_result: "Справка содержит pvecm qdevice setup [OPTIONS]."
+    conclusion: "Для настройки следует использовать pvecm qdevice setup 192.168.202.251."
+    status: "completed"
+    evidence: "Встроенная справка pvecm."
+
+  - step: 12
+    action: "Попытаться подключить QDevice."
+    command: "pvecm add qdevice 192.168.202.251"
+    expected_result: "QDevice подключён."
+    actual_result: "400 too many arguments; pvecm add <hostname> [OPTIONS]."
+    conclusion: "Команда некорректна для этой версии."
+    status: "failed"
+    evidence: "Вывод команды pvecm."
+
+checks_performed:
+  - "Проверены версии Proxmox VE."
+  - "Проверено отсутствие существующего кластера."
+  - "Проверена статическая адресация узлов."
+  - "Проверена сетевaя связность."
+  - "Проверена доступность SSH."
+  - "Проверено отсутствие VM и контейнеров."
+  - "Проверена синхронизация времени."
+  - "Проверен статус кворума."
+  - "Проверена служба corosync-qnetd."
+  - "Проверена установка corosync-qdevice."
+  - "Проверена встроенная справка pvecm."
+
+logs_examined:
+  - path: ""
+    source: ""
+    time_range: ""
+    relevant_entries: ""
+
+metrics_examined:
+  - name: "Expected votes"
+    source: "pvecm status"
+    unit: "голоса"
+    collection_method: "CLI"
+    result: "2 до настройки QDevice"
+
+  - name: "Quorum"
+    source: "pvecm status"
+    unit: "голоса"
+    collection_method: "CLI"
+    result: "2 до настройки QDevice"
+
+# ============================================================
+# 10. ГИПОТЕЗЫ
+# ============================================================
+
+hypotheses:
+  - id: "H1"
+    description: "Двухузловой кластер теряет кворум при потере одного узла или сетевом разделении."
+    status: "confirmed"
+    verification_method: "Анализ votequorum и значения Expected votes: 2."
+    evidence_for:
+      - "В кластере два узла и два голоса."
+      - "Quorum равен 2."
+    evidence_against: []
+    conclusion: "Для сохранения кворума требуется третий голос."
+
+  - id: "H2"
+    description: "Внешний QDevice на независимом Debian-хосте может предоставить дополнительный голос."
+    status: "tested"
+    verification_method: "Установка corosync-qnetd и corosync-qdevice."
+    evidence_for:
+      - "Служба corosync-qnetd active (running)."
+      - "corosync-qdevice установлен на обоих узлах."
+      - "Встроенная справка содержит pvecm qdevice setup."
+    evidence_against: []
+    conclusion: "Предусловия подготовлены, финальное подключение не подтверждено."
+
+  - id: "H3"
+    description: "Команда pvecm add qdevice 192.168.202.251 подключает QDevice."
+    status: "rejected"
+    verification_method: "Фактический запуск команды на pve01."
+    evidence_for: []
+    evidence_against:
+      - "Команда вернула 400 too many arguments."
+      - "pvecm add принимает hostname существующего узла."
+    conclusion: "Команда не подходит для настройки QDevice."
+
+# ============================================================
+# 11. ПРОВЕРЕННЫЕ И ОТВЕРГНУТЫЕ РЕШЕНИЯ
+# ============================================================
+
+tested_solutions:
+  - action: "pvecm create krnn"
+    result: "Кластер krnn создан на pve01."
+    status: "successful"
+    reason: "Команда создала конфигурацию Corosync и кластерную файловую систему."
+
+  - action: "pvecm add 192.168.202.121"
+    result: "pve02 успешно добавлен в кластер."
+    status: "successful"
+    reason: "Вывод содержит successfully added node 'pve02' to cluster."
+
+  - action: "apt install corosync-qnetd -y"
+    result: "QDevice Network daemon установлен и запущен."
+    status: "successful"
+    reason: "Служба active (running) и enabled."
+
+  - action: "apt install corosync-qdevice -y"
+    result: "Пакет установлен на pve01 и pve02."
+    status: "successful"
+    reason: "Status: install ok installed."
+
+  - action: "pvecm add qdevice 192.168.202.251"
+    result: "400 too many arguments."
+    status: "failed"
+    reason: "Команда относится к добавлению узла, а не к настройке QDevice."
+
+rejected_solutions:
+  - action: "pvecm add qdevice 192.168.202.251"
+    reason_rejected: "pvecm интерпретирует qdevice как hostname и получает лишний аргумент 192.168.202.251."
+    risk: "Настройка QDevice не выполняется; можно ошибочно считать QDevice подключённым."
+
+  - action: "Создание production-кластера только из двух узлов без третьего голоса."
+    reason_rejected: "При потере одного узла или сетевом разделении ожидаемый кворум 2 недостижим."
+    risk: "Кластер становится non-quorate, операции управления и HA могут быть заблокированы."
+
+dont_repeat:
+  - "Не использовать команду `pvecm add qdevice 192.168.202.251`: в PVE 9.2 она завершается ошибкой `400 too many arguments`."
+  - "Не считать QDevice настроенным только по установленным пакетам; после настройки проверить `pvecm status` и наличие `Qdevice` в Flags."
+  - "Не размещать QDevice на pve01 или pve02; он должен находиться на независимом третьем хосте."
+  - "Не эксплуатировать двухузловой production-кластер без дополнительного голоса кворума."
+
+# ============================================================
+# 12. КОМАНДЫ И КОНФИГУРАЦИЯ
+# ============================================================
+
+commands: |
+  # На Qdevice
+  apt update && apt install -y corosync-qnetd
+  systemctl enable --now corosync-qnetd
+
+  # На узлах Proxmox
+  apt update && apt install corosync-qdevice -y
+
+  # Создание кластера на pve01
+  pvecm create krnn
+
+  # Добавление pve02 в кластер
+  pvecm add 192.168.202.121
+
+  # Настройка QDevice по встроенной справке pvecm
+  pvecm qdevice setup 192.168.202.251
+
+  # Проверка
+  pvecm status
+
+commands_by_system:
+  proxmox: |
+    apt update && apt install corosync-qdevice -y
+    pvecm create krnn
+    pvecm add 192.168.202.121
+    pvecm qdevice setup 192.168.202.251
+    pvecm status
+
+  windows_powershell: |
+    
+  linux_shell: |
+    apt update && apt install -y corosync-qnetd
+    systemctl enable --now corosync-qnetd
+    systemctl status corosync-qnetd.service
+
+command_safety:
+  requires_administrator: true
+  requires_reboot: false
+  causes_downtime: true
+  modifies_data: true
+  modifies_configuration: true
+  reversible: true
+
+config_snippets:
+  main_configuration: |
+    cluster: krnn
+    pve01: 192.168.202.121
+    pve02: 192.168.202.179
+    Qdevice: 192.168.202.251
+
+  service_configuration: |
+    corosync-qnetd.service:
+      enabled: true
+      status: active (running)
+
+  before_change: |
+    Expected votes: 2
+    Quorum: 2
+    Flags: Quorate
+
+  after_change: |
+    Expected votes: 3
+    Quorum: 2
+    Flags: Quorate Qdevice
+
+configuration_changes:
+  - parameter: "Proxmox cluster"
+    old_value: "standalone nodes"
+    new_value: "krnn"
+    reason: "Объединение pve01 и pve02 в кластер."
+    reversible: false
+
+  - parameter: "QDevice"
+    old_value: "not configured"
+    new_value: "external QDevice at 192.168.202.251"
+    reason: "Добавление дополнительного голоса кворума."
+    reversible: true
+
+# ============================================================
+# 13. ИЗМЕНЕНИЯ И ОТКАТ
+# ============================================================
+
+changes_applied:
+  - change: "Создан кластер krnn на pve01."
+    operator: "cladkyimaffin-hue"
+    timestamp: ""
+    target: "pve01"
+    backup_created: false
+    change_reference: "pvecm create krnn"
+
+  - change: "pve02 добавлен в кластер krnn."
+    operator: "cladkyimaffin-hue"
+    timestamp: ""
+    target: "pve02"
+    backup_created: true
+    change_reference: "/var/lib/pve-cluster/backup/config-1786452293.sql.gz"
+
+  - change: "Установлен corosync-qnetd."
+    operator: "cladkyimaffin-hue"
+    timestamp: ""
+    target: "Qdevice"
+    backup_created: false
+    change_reference: ""
+
+  - change: "Установлен corosync-qdevice."
+    operator: "cladkyimaffin-hue"
+    timestamp: ""
+    target: "pve01 и pve02"
+    backup_created: false
+    change_reference: ""
+
+rollback_available: true
+rollback_plan: |
+  Для удаления QDevice использовать штатную команду:
+  pvecm qdevice remove
+
+  Для удаления узла из кластера использовать процедуру Proxmox VE
+  и команду pvecm delnode только после проверки состояния кластера,
+  наличия кворума и резервной копии конфигурации.
+
+rollback_commands: |
+  pvecm qdevice remove
+  pvecm status
+
+rollback_conditions:
+  - "QDevice не подключается или показывает некорректное состояние."
+  - "После настройки отсутствует ожидаемый флаг Qdevice."
+  - "Нарушена связь между узлами и QDevice."
+  - "Изменение вызывает ошибки Corosync."
+
+backup:
+  created: true
+  type: "config_copy"
+  location: "/var/lib/pve-cluster/backup/config-1786452293.sql.gz"
+  timestamp: ""
+  retention: ""
+
+# ============================================================
+# 14. ПРОВЕРКА РЕЗУЛЬТАТА
+# ============================================================
+
+success_criteria:
+  - "Кластер krnn содержит pve01 и pve02."
+  - "Qdevice доступен по адресу 192.168.202.251."
+  - "Служба corosync-qnetd имеет статус active (running)."
+  - "Пакет corosync-qdevice установлен на pve01 и pve02."
+  - "pvecm status показывает Expected votes: 3."
+  - "pvecm status показывает Quorum: 2."
+  - "pvecm status показывает Flags: Quorate Qdevice."
+
+validation_steps:
+  - step: 1
+    action: "Проверить службу QDevice."
+    expected_result: "active (running)"
+    actual_result: "active (running)"
+    status: "completed"
+
+  - step: 2
+    action: "Проверить состояние кластера."
+    expected_result: "Expected votes: 3; Quorum: 2; Flags: Quorate Qdevice"
+    actual_result: ""
+    status: "pending"
+
+  - step: 3
+    action: "Проверить наличие обоих узлов."
+    expected_result: "pve01 и pve02 присутствуют в Membership."
+    actual_result: ""
+    status: "pending"
+
+before_after_comparison:
+  - metric: "Expected votes"
+    before: "2"
+    after: ""
+    expected: "3"
+    improvement: "Добавлен третий голос."
+    source: "pvecm status"
+
+  - metric: "Quorum"
+    before: "2"
+    after: ""
+    expected: "2"
+    improvement: "Один узел вместе с QDevice может сохранить кворум."
+    source: "pvecm status"
+
+  - metric: "Qdevice flag"
+    before: "отсутствует"
+    after: ""
+    expected: "Qdevice"
+    improvement: "Внешний голос подключён."
+    source: "pvecm status"
+
+post_change_observation_period: ""
+post_change_status: "not_started"
+
+regression_risk: "medium"
+known_side_effects:
+  - "При вступлении pve02 в кластер была заменена локальная конфигурация /etc/pve."
+  - "После присоединения pve02 был сгенерирован новый сертификат узла."
+  - "При изменении кластерной конфигурации веб-интерфейс может быть временно недоступен."
+
+# ============================================================
+# 15. БЕЗОПАСНОСТЬ И РИСКИ
+# ============================================================
+
+security_impact: "medium"
+security_considerations:
+  - "QDevice должен находиться на независимом хосте."
+  - "Доступ между узлами и QDevice должен быть ограничен необходимыми сетевыми правилами."
+  - "Команды выполняются с правами root."
+  - "Необходимо проверять fingerprint при SSH/API-подключении."
+  - "QDevice не должен размещаться на одном из узлов, кворум которого он обеспечивает."
+
+data_loss_risk: "medium"
+downtime_required: true
+estimated_downtime: ""
+requires_maintenance_window: true
+
+dangerous_operations:
+  - "Добавление узла в кластер изменяет /etc/pve на присоединяемом узле."
+  - "Создание или изменение Corosync-конфигурации может временно нарушить управление кластером."
+  - "Удаление QDevice или узла без проверки кворума может привести к блокировке управления."
+
+secrets_present: false
+secret_locations:
+  - "Пароли root вводились интерактивно и в документе не сохранены."
+
+# ============================================================
+# 16. ДОКАЗАТЕЛЬСТВА И ИСТОЧНИКИ
+# ============================================================
+
+evidence:
+  - type: "command_output"
+    description: "Одинаковая версия Proxmox VE на pve01 и pve02."
+    location: ""
+    collected_at: ""
+    collected_by: "cladkyimaffin-hue"
+    integrity_check: ""
+
+  - type: "command_output"
+    description: "Кластер krnn создан на pve01."
+    location: ""
+    collected_at: ""
+    collected_by: "cladkyimaffin-hue"
+    integrity_check: ""
+
+  - type: "command_output"
+    description: "pve02 успешно добавлен в кластер."
+    location: ""
+    collected_at: ""
+    collected_by: "cladkyimaffin-hue"
+    integrity_check: ""
+
+  - type: "command_output"
+    description: "corosync-qnetd active (running) на Qdevice."
+    location: ""
+    collected_at: ""
+    collected_by: "cladkyimaffin-hue"
+    integrity_check: ""
+
+  - type: "command_output"
+    description: "corosync-qdevice установлен на pve01 и pve02."
+    location: ""
+    collected_at: ""
+    collected_by: "cladkyimaffin-hue"
+    integrity_check: ""
+
+  - type: "command_output"
+    description: "Команда pvecm add qdevice 192.168.202.251 отклонена с ошибкой 400 too many arguments."
+    location: ""
+    collected_at: ""
+    collected_by: "cladkyimaffin-hue"
+    integrity_check: ""
+
+source_urls:
+  - "https://github.com/cladkyimaffin-hue/korona/blob/d2fbb245af995a593557ee3fa55a7f41fcfa74ad/Proxmox/pve01%2Bpve02%2BQdevice.md"
+
+urls:
+  - "https://github.com/cladkyimaffin-hue/korona/blob/d2fbb245af995a593557ee3fa55a7f41fcfa74ad/Proxmox/pve01%2Bpve02%2BQdevice.md"
+
+references:
+  - title: "pve01+pve02+Qdevice.md"
+    url: "https://github.com/cladkyimaffin-hue/korona/blob/d2fbb245af995a593557ee3fa55a7f41fcfa74ad/Proxmox/pve01%2Bpve02%2BQdevice.md"
+    type: "internal_note"
+    accessed_at: "2026-09-07"
+    relevance: "Исходный документ с протоколом настройки кластера и QDevice."
+
+github:
+  repository: "cladkyimaffin-hue/korona"
+  file_path: "Proxmox/pve01+pve02+Qdevice.md"
+  branch: "d2fbb245af995a593557ee3fa55a7f41fcfa74ad"
+  commit: "d2fbb245af995a593557ee3fa55a7f41fcfa74ad"
+  issue: ""
+  pull_request: ""
+  related_commits:
+    - ""
+
+# ============================================================
+# 17. ИНСТРУКЦИИ ДЛЯ ИИ
+# ============================================================
+
+ai_instructions:
+  primary_goal: "Помочь настроить и проверить двухузловой кластер Proxmox VE с внешним Corosync QDevice, не повторяя ошибочную команду подключения."
+
+  use_this_document_for:
+    - "Создание кластера Proxmox VE из pve01 и pve02."
+    - "Настройка corosync-qnetd на независимом Debian-хосте."
+    - "Установка corosync-qdevice на узлы Proxmox."
+    - "Проверка кворума и состояния QDevice."
+
+  do_not_use_this_document_for:
+    - "Автоматическое выполнение опасных кластерных команд без проверки окружения."
+    - "Настройка кластеров с другими версиями Proxmox без дополнительной проверки."
+    - "Размещение QDevice на pve01 или pve02."
+    - "Использование команды pvecm add qdevice <IP>."
+
+  required_context:
+    - "Версия Proxmox VE."
+    - "IP-адреса и FQDN узлов."
+    - "Имя кластера."
+    - "IP-адрес независимого QDevice-хоста."
+    - "Состояние pvecm status."
+    - "Наличие VM и контейнеров."
+    - "Состояние corosync-qnetd и corosync-qdevice."
+
+  ask_before_recommending:
+    - "Создание нового кластера."
+    - "Добавление или удаление узла."
+    - "Изменение Corosync-конфигурации."
+    - "Удаление QDevice."
+    - "Операции, изменяющие /etc/pve."
+    - "Перезагрузка или остановка узлов."
+
+  response_requirements:
+    - "Сначала сравнить окружение пользователя с окружением документа."
+    - "Проверить, что QDevice является независимым хостом."
+    - "Не предлагать pvecm add qdevice <IP>."
+    - "После настройки проверять Expected votes, Quorum и Flags."
+    - "Предупреждать о влиянии операции на /etc/pve и доступность управления."
+    - "Отделять подтверждённые факты от незавершённых действий."
+
+  confidence_limitations:
+    - "Успешное выполнение pvecm qdevice setup в исходном файле не подтверждено."
+    - "Итоговые значения Expected votes: 3 и Flags: Quorate Qdevice приведены как критерий успеха, а не как фактически полученный результат."
+    - "Результаты подтверждены для Proxmox VE 9.2.9 и corosync-qdevice 3.0.3-2."
+    - "Другие версии требуют отдельной проверки."
+
+key_takeaways:
+  - "QDevice должен находиться на независимом третьем хосте, а не на pve01 или pve02."
+  - "Для QDevice используется corosync-qnetd на Debian и corosync-qdevice на узлах Proxmox."
+  - "В Proxmox VE 9.2 для подключения используется `pvecm qdevice setup 192.168.202.251`."
+  - "Команда `pvecm add qdevice 192.168.202.251` в документе завершилась ошибкой `400 too many arguments`."
+  - "После успешной настройки нужно проверить `Expected votes: 3`, `Quorum: 2` и `Flags: Quorate Qdevice`."
+
+assumptions:
+  - "Qdevice имеет статический IP 192.168.202.251."
+  - "Qdevice находится в сети 192.168.200.0/22."
+  - "Qdevice доступен с pve01 и pve02."
+  - "Qdevice доступен по TCP-порту 5403."
+  - "На pve01 и pve02 установлен corosync-qdevice."
+  - "На Qdevice запущен corosync-qnetd."
+
+open_questions:
+  - "Выполнена ли команда `pvecm qdevice setup 192.168.202.251`?"
+  - "Какой итоговый вывод `pvecm status` после настройки QDevice?"
+  - "Появились ли `Expected votes: 3` и `Flags: Quorate Qdevice`?"
+  - "Подтверждена ли работа QDevice после перезагрузки узлов?"
+
+# ============================================================
+# 18. КАЧЕСТВО ДАННЫХ
+# ============================================================
+
+data_quality:
+  completeness: "partial"
+  accuracy: "partially_verified"
+  freshness: "current"
+  reproducibility: "partially_reproducible"
+  source_quality: "primary"
+
+missing_data:
+  - "Нет подтверждённого выполнения pvecm qdevice setup 192.168.202.251."
+  - "Нет итогового pvecm status с подключённым QDevice."
+  - "Нет подтверждения Expected votes: 3."
+  - "Нет подтверждения Flags: Quorate Qdevice."
+  - "Нет точного времени выполнения большинства операций."
+  - "Нет информации о firewall на Qdevice и узлах."
+
+uncertainties:
+  - "Настройка QDevice в исходном файле не завершена."
+  - "Не подтверждено, что TCP-порт 5403 доступен; в документе это указано как допущение."
+  - "Не подтверждена работа QDevice после перезагрузки."
+  - "Полный вывод dpkg -L corosync-qdevice отсутствует в доступном протоколе."
+
+needs_follow_up: true
+follow_up_tasks:
+  - task: "Выполнить на pve01: pvecm qdevice setup 192.168.202.251"
+    owner: ""
+    due_date: ""
+    status: "pending"
+
+  - task: "Проверить pvecm status на pve01 и pve02"
+    owner: ""
+    due_date: ""
+    status: "pending"
+
+  - task: "Подтвердить Expected votes: 3 и Flags: Quorate Qdevice"
+    owner: ""
+    due_date: ""
+    status: "pending"
+
+  - task: "Проверить работу QDevice после перезагрузки или временной потери одного узла"
+    owner: ""
+    due_date: ""
+    status: "pending"
+
+# ============================================================
+# 19. АУДИТ ДОКУМЕНТА
+# ============================================================
+
+audit:
+  created_by: "cladkyimaffin-hue"
+  created_at: "2026-08-30"
+  last_modified_by: "cladkyimaffin-hue"
+  last_modified_at: "2026-09-02"
+  reviewed_by: "cladkyimaffin-hue"
+  reviewed_at: ""
+  review_result: "approved"
+
+change_history:
+  - version: "1.0"
+    date: "2026-08-30"
+    author: "cladkyimaffin-hue"
+    changes:
+      - "Создан документ."
+      - "Описано создание кластера krnn из pve01 и pve02."
+      - "Описана подготовка QDevice на Debian."
+      - "Зафиксирована ошибка команды pvecm add qdevice."
+
+# ============================================================
+# 20. ФИНАЛЬНЫЕ ПОЛЯ
+# ============================================================
+
+review_notes: |
+  Кластер krnn из pve01 и pve02 создан и проверен.
+  Серверная и клиентская части QDevice установлены.
+  Однако фактическое успешное подключение QDevice в исходном
+  документе не подтверждено. Перед признанием настройки завершённой
+  необходимо выполнить pvecm qdevice setup 192.168.202.251 и проверить
+  Expected votes: 3, Quorum: 2 и Flags: Quorate Qdevice.
+
+notes: |
+  В протоколе использовано написание qdivice, однако корректное название
+  компонента — QDevice. Исходный документ содержит дату 2026-08-30,
+  дату изменения 2026-09-02, имя автора cladkyimaffin-hue,
+  имя кластера krnn, адреса pve01 192.168.202.121,
+  pve02 192.168.202.179 и Qdevice 192.168.202.251.
 ---
 ### USER
 Нужно два нода Proxmox pve01 pve02 обьединить
