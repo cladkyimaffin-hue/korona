@@ -1,70 +1,1029 @@
 ---
-# === БАЗОВАЯ ИНФОРМАЦИЯ ===
+# ============================================================
+# 1. ИДЕНТИФИКАЦИЯ ДОКУМЕНТА
+# ============================================================
+
+document_id: "DOC-2026-08-30-001"
+title: "Настройка Corosync QDevice для двухузлового кластера Proxmox VE"
+slug: "nastroyka-corosync-qdevice-dlya-dvukhuzlovogo-klastera-proxmox"
+document_type: "runbook"
+language: "ru"
+version: "1.0"
+schema_version: "1.0"
+status: "completed"
+confidentiality: "internal"
+priority: "critical"
+
 date_created: 2026-08-30
 date_modified: 2026-09-02
-author: cladkyimaffin-hue
-status: "completed"
-# === КОНТЕКСТ СИСТЕМЫ ===
-target_system: "Proxmox VE Cluster + Debian/Ubuntu QDevice Host"
-environment: "production"
-# === БЫСТРАЯ КЛАССИФИКАЦИЯ ===
+date_completed: ""
+last_reviewed: ""
+next_review: 2026-12-01
+valid_until: 2027-01-01
+
+author: "cladkyimaffin-hue"
+maintainer: ""
+reviewer: "cladkyimaffin-hue"
+owner_team: ""
+approval_status: "approved"
+
+# ============================================================
+# 2. КЛАССИФИКАЦИЯ И ПОИСК
+# ============================================================
+
 category: "setup"
-severity: "critical"
-problem: "Кластер из 2-3 нод теряет кворум при отказе или сетевой изоляции одного из узлов, что приводит к остановке HA и Ceph (split-brain protection)."
-solution: "Развертывание легковесного сервиса corosync-qnetd на независимом третьем хосте и его интеграция в кластер через команду `pvecm qdevice setup`."
-root_cause: "Четное количество узлов (2) не может обеспечить математический кворум (N/2 + 1) при потере связи между ними."
-# === AI-СПЕЦИФИЧНЫЕ ПОЛЯ ===
-ai_summary: "Пошаговая инструкция по добавлению Corosync QDevice в кластер Proxmox. Описывает установку пакетов на узлы и хост-свидетель, настройку SSH-ключей и проверку статуса кворума через `pvecm status`."
-key_takeaways:
-  - "QDevice должен находиться на независимом третьем хосте (не на одной из боевых нод)."
-  - "Для подключения используется команда `pvecm qdevice setup <IP_адрес_QDevice>`."
-  - "После настройки Expected votes становится 3, Quorum = 2, что позволяет кластеру выживать при потере 1 узла."
-dont_repeat:
-  - "Не предлагать команду `pvecm add qdevice <IP>` — она устарела и вызывает ошибку 'too many arguments'. Использовать `pvecm qdevice setup`."
-  - "Не предлагать размещение полноценного Ceph Monitor на хосте QDevice, если его единственная задача — обеспечение кворума."
-assumptions:
-  - "Хост QDevice имеет статический IP и доступен по TCP порту 5403 с узлов Proxmox."
-  - "На хосте QDevice установлена ОС Debian/Ubuntu."
-# === АРТЕФАКТЫ ===
-commands: |
-  # На хосте QDevice
-  apt update && apt install -y corosync-qnetd
-  systemctl enable --now corosync-qnetd
-  ufw allow 5403/tcp
-  
-  # На узлах Proxmox (pve01, pve02)
-  apt update && apt install -y corosync-qdevice
-  
-  # На одном из узлов Proxmox (инициализация)
-  pvecm qdevice setup 192.168.202.251
-  
-  # Проверка
-  pvecm status
-config_snippets:
-  qdevice_status_check: |
-    Expected votes: 3
-    Quorum: 2
-    Flags: Quorate Qdevice
-urls: []
-# === СВЯЗИ ===
-related_files:
-  - "INDEX.md"
-  - "pve01+pve02+Qdevice.md"
-depends_on: []
-superseded_by: ""
+domain: "virtualization"
+subdomain: "cluster-quorum"
+
 tags:
   - "ProxmoxVE"
   - "QDevice"
   - "Corosync"
+  - "corosync-qnetd"
+  - "corosync-qdevice"
   - "Quorum"
   - "HighAvailability"
-# === ВРЕМЕННОЙ КОНТЕКСТ ===
+  - "Debian"
+  - "Ubuntu"
+
+keywords:
+  - "двухузловой кластер"
+  - "кворум Proxmox"
+  - "Corosync QDevice"
+  - "corosync-qnetd"
+  - "pvecm qdevice setup"
+  - "отказоустойчивость"
+  - "QNetd"
+
+aliases:
+  - "Настройка QDevice в Proxmox"
+  - "Добавление QDevice в кластер Proxmox"
+  - "Настройка внешнего свидетеля кворума"
+
+related_topics:
+  - "Corosync"
+  - "votequorum"
+  - "Proxmox HA"
+  - "fencing"
+  - "Ceph"
+  - "SSH"
+  - "NTP"
+  - "сетевое разделение"
+
+# ============================================================
+# 3. КРАТКОЕ ОПИСАНИЕ
+# ============================================================
+
+problem: "Кластер Proxmox из двух узлов теряет кворум при отказе или сетевой изоляции одного узла, что может остановить управление кластером, HA и операции Ceph."
+
+summary: "Инструкция описывает настройку внешнего Corosync QDevice для двухузлового кластера Proxmox VE. На отдельном Debian/Ubuntu-хосте устанавливается corosync-qnetd, а на обоих узлах Proxmox — corosync-qdevice. После выполнения pvecm qdevice setup кластер должен получить три ожидаемых голоса и кворум 2."
+
+ai_summary: "Для двух узлов Proxmox требуется независимый третий хост QDevice, который предоставляет дополнительный голос кворума. На QDevice устанавливается corosync-qnetd, на узлах Proxmox — corosync-qdevice, после чего на одном узле выполняется pvecm qdevice setup <IP_QDEVICE>. Проверка выполняется через pvecm status; ожидаются Expected votes: 3, Quorum: 2 и флаг Qdevice."
+
+business_impact: "QDevice повышает доступность управления двухузловым кластером при отказе одного узла, но сам по себе не обеспечивает fencing и полноценный автоматический перезапуск виртуальных машин."
+
+technical_impact: "В кластер добавляется внешний голос Corosync; изменяются конфигурация Corosync, сертификаты QDevice и состояние служб corosync-qdevice на узлах."
+
+user_impact: "Администратор может сохранить кворум на одном оставшемся узле при условии доступности независимого QDevice."
+
+severity: "critical"
+incident_status: "monitoring"
+
+# ============================================================
+# 4. СИСТЕМА И ОКРУЖЕНИЕ
+# ============================================================
+
+environment: "production"
+system_role: "Двухузловой кластер Proxmox VE с внешним QDevice"
+system_name: ""
+hostname: ""
+fqdn: ""
+asset_id: ""
+vm_id: ""
+cluster: ""
+node: ""
+
+operating_system:
+  name: "Debian/Ubuntu"
+  version: ""
+  edition: ""
+  architecture: ""
+  build: ""
+  language: ""
+  timezone: ""
+
+platform:
+  name: "Proxmox VE"
+  version: ""
+  node_version: ""
+  kernel: ""
+  hypervisor: "QEMU/KVM"
+  machine_type: ""
+  firmware: ""
+
+network:
+  ip_addresses:
+    - ""
+  mac_addresses:
+    - ""
+  vlan: ""
+  subnet: ""
+  gateway: ""
+  dns_servers:
+    - ""
+  reverse_proxy: ""
+  firewall_zone: ""
+
+hardware:
+  cpu_model: ""
+  cpu_sockets: ""
+  cpu_cores: ""
+  cpu_threads: ""
+  memory_allocated: ""
+  memory_type: ""
+  storage:
+    - type: ""
+      name: ""
+      size: ""
+      filesystem: ""
+      mount_point: ""
+
+# ============================================================
+# 5. КОМПОНЕНТЫ И ВЕРСИИ
+# ============================================================
+
+components:
+  - name: "Proxmox VE node 1"
+    type: "software"
+    version: ""
+    status_before: "cluster_member"
+    status_after: "cluster_member_with_qdevice"
+    configuration: ""
+
+  - name: "Proxmox VE node 2"
+    type: "software"
+    version: ""
+    status_before: "cluster_member"
+    status_after: "cluster_member_with_qdevice"
+    configuration: ""
+
+  - name: "corosync-qnetd"
+    type: "service"
+    version: ""
+    status_before: "not_installed"
+    status_after: "running"
+    configuration: "Служба работает на независимом Debian/Ubuntu-хосте и принимает подключения на TCP-порту 5403."
+
+  - name: "corosync-qdevice"
+    type: "package"
+    version: ""
+    status_before: "not_installed"
+    status_after: "configured"
+    configuration: "Устанавливается на обоих узлах Proxmox."
+
+dependencies:
+  - name: "Debian/Ubuntu на отдельном QDevice-хосте"
+    version: ""
+    required: true
+    purpose: "Запуск corosync-qnetd."
+
+  - name: "SSH"
+    version: ""
+    required: true
+    purpose: "Первоначальная настройка QDevice командой pvecm qdevice setup."
+
+  - name: "NTP/chrony"
+    version: ""
+    required: true
+    purpose: "Синхронизация времени между узлами и QDevice."
+
+related_files:
+  - "pve01+pve02+Qdevice.md"
+  - "INDEX.md"
+
+depends_on:
+  - ""
+
+supersedes: ""
+superseded_by: ""
+
+# ============================================================
+# 6. ВРЕМЕННАЯ ШКАЛА
+# ============================================================
+
+timeline:
+  detected_at: "2026-08-30"
+  reported_at: ""
+  investigation_started_at: ""
+  mitigation_started_at: ""
+  resolved_at: ""
+  closed_at: ""
+
+  events:
+    - timestamp: "2026-08-30"
+      event: "Зафиксирована необходимость добавить QDevice к двухузловому кластеру Proxmox."
+      actor: "cladkyimaffin-hue"
+      evidence: "Исходный Markdown-файл."
+
+    - timestamp: ""
+      event: "На независимом Linux-хосте установлен corosync-qnetd."
+      actor: ""
+      evidence: ""
+
+    - timestamp: ""
+      event: "На обоих узлах Proxmox установлен corosync-qdevice."
+      actor: ""
+      evidence: ""
+
+    - timestamp: ""
+      event: "QDevice подключён командой pvecm qdevice setup."
+      actor: ""
+      evidence: ""
+
+    - timestamp: ""
+      event: "Проверены состояние кворума, службы и отказоустойчивость."
+      actor: ""
+      evidence: ""
+
 last_incident: 2026-08-30
-next_review: 2026-12-01
-valid_until: 2027-01-01
-# === ОТВЕТСТВЕННОСТЬ ===
-reviewer: "cladkyimaffin-hue"
-approval_status: "approved"
+incident_duration: ""
+recurrence_count: 0
+recurrence_pattern: ""
+
+# ============================================================
+# 7. СИМПТОМЫ И ФАКТИЧЕСКИЕ НАБЛЮДЕНИЯ
+# ============================================================
+
+symptoms:
+  - "Двухузловой кластер теряет кворум при отказе одного узла."
+  - "Сетевое разделение двух узлов может привести к остановке операций управления."
+  - "Без QDevice Expected votes равен 2."
+  - "Команда pvecm add qdevice <IP> вызывает ошибку too many arguments."
+  - "Отсутствует независимый третий голос кворума."
+
+observed_behavior:
+  - metric: "Количество узлов Proxmox"
+    value_before: "2"
+    value_after: "2"
+    expected_value: "2"
+    unit: "узла"
+    source: "pvecm status"
+    timestamp: ""
+
+  - metric: "Expected votes"
+    value_before: "2"
+    value_after: "3"
+    expected_value: "3"
+    unit: "голоса"
+    source: "pvecm status"
+    timestamp: ""
+
+  - metric: "Quorum"
+    value_before: "2"
+    value_after: "2"
+    expected_value: "2"
+    unit: "голоса"
+    source: "pvecm status"
+    timestamp: ""
+
+  - metric: "QDevice"
+    value_before: "Offline или отсутствует"
+    value_after: "Online"
+    expected_value: "Online"
+    unit: ""
+    source: "pvecm status"
+    timestamp: ""
+
+expected_behavior:
+  - "Кластер имеет Expected votes: 3."
+  - "Кворум равен 2."
+  - "В pvecm status присутствует Qdevice с одним голосом."
+  - "При отказе одного узла оставшийся узел сохраняет кворум вместе с QDevice."
+  - "При отказе только QDevice два узла сохраняют кворум."
+
+actual_behavior:
+  - "Инструкция описывает установку и подключение QDevice."
+  - "Ожидаемое состояние после настройки указано."
+  - "Фактический вывод успешного pvecm status для конкретного окружения не приведён."
+
+affected_services:
+  - name: "Corosync"
+    impact: "Обеспечивает членство и кворум кластера."
+    availability: "available"
+
+  - name: "Proxmox cluster management"
+    impact: "Может быть недоступен при потере кворума."
+    availability: "degraded"
+
+  - name: "Proxmox HA"
+    impact: "Для автоматического перезапуска ресурсов дополнительно требуется fencing."
+    availability: "unknown"
+
+  - name: "Ceph"
+    impact: "QDevice не заменяет отдельный кворум Ceph."
+    availability: "unknown"
+
+# ============================================================
+# 8. ПРОБЛЕМА, РЕШЕНИЕ И ПРИЧИНА
+# ============================================================
+
+problem_statement: |
+  В двухузловом кластере Proxmox при потере связи с одним из узлов
+  остаётся только один голос из двух. Для кворума требуется два голоса,
+  поэтому кластер теряет кворум. Необходимо добавить независимый третий
+  голос через отдельный хост с corosync-qnetd.
+
+solution: |
+  На независимом Debian/Ubuntu-хосте установить corosync-qnetd,
+  включить и запустить службу, открыть TCP-порт 5403 и проверить,
+  что порт прослушивается. На обоих узлах Proxmox установить
+  corosync-qdevice. На одном узле выполнить pvecm qdevice setup
+  <IP_QDEVICE>. После этого проверить pvecm status,
+  corosync-quorumtool -s, состояние corosync-qdevice и corosync-qnetd.
+  Затем в maintenance-окно проверить отказ одного узла и отказ QDevice.
+
+root_cause: |
+  Причина потери кворума — чётное количество голосов в двухузловом
+  кластере. При отказе одного узла остаётся только один голос из двух,
+  тогда как для кворума требуется два. Дополнительной причиной ошибки
+  настройки является использование устаревшей команды pvecm add qdevice
+  <IP> вместо pvecm qdevice setup <IP>.
+
+contributing_factors:
+  - "В кластере только два узла."
+  - "QDevice отсутствует либо не подключён."
+  - "QDevice может быть размещён не на независимом хосте."
+  - "TCP-порт 5403 может быть заблокирован firewall."
+  - "Время на узлах может быть рассинхронизировано."
+  - "SSH-доступ к QDevice может быть не настроен."
+  - "Для HA может отсутствовать fencing."
+
+trigger:
+  type: "failure"
+  description: "Отказ одного узла или сетевое разделение в двухузловом кластере."
+
+resolution_confidence: "high"
+evidence_level: "partially_verified"
+
+# ============================================================
+# 9. ДИАГНОСТИКА
+# ============================================================
+
+diagnostic_method: |
+  Проверить наличие кворума, синхронизацию времени, разрешение имён,
+  SSH-доступ, доступность TCP-порта 5403, состояние corosync-qnetd
+  и corosync-qdevice. После настройки сравнить Expected votes,
+  Total votes, Quorum и наличие Qdevice в pvecm status.
+
+diagnostic_steps:
+  - step: 1
+    action: "Проверить состояние кластера."
+    command: "pvecm status"
+    expected_result: "Quorate: Yes."
+    actual_result: ""
+    conclusion: ""
+    status: "pending"
+    evidence: ""
+
+  - step: 2
+    action: "Проверить синхронизацию времени."
+    command: "timedatectl status"
+    expected_result: "Время синхронизировано на всех трёх машинах."
+    actual_result: ""
+    conclusion: ""
+    status: "pending"
+    evidence: ""
+
+  - step: 3
+    action: "Проверить SSH-доступ с узла Proxmox к QDevice."
+    command: "ssh root@<IP_QDEVICE>"
+    expected_result: "SSH-подключение успешно."
+    actual_result: ""
+    conclusion: ""
+    status: "pending"
+    evidence: ""
+
+  - step: 4
+    action: "Проверить службу QNetd."
+    command: "systemctl status corosync-qnetd"
+    expected_result: "active (running)."
+    actual_result: ""
+    conclusion: ""
+    status: "pending"
+    evidence: ""
+
+  - step: 5
+    action: "Проверить порт QNetd."
+    command: "ss -ltnp | grep 5403"
+    expected_result: "TCP-порт 5403 прослушивается."
+    actual_result: ""
+    conclusion: ""
+    status: "pending"
+    evidence: ""
+
+  - step: 6
+    action: "Проверить доступность QDevice с узлов Proxmox."
+    command: "nc -zv <IP_QDEVICE> 5403"
+    expected_result: "TCP-подключение успешно."
+    actual_result: ""
+    conclusion: ""
+    status: "pending"
+    evidence: ""
+
+  - step: 7
+    action: "Проверить состояние QDevice после настройки."
+    command: "systemctl status corosync-qdevice"
+    expected_result: "active (running)."
+    actual_result: ""
+    conclusion: ""
+    status: "pending"
+    evidence: ""
+
+  - step: 8
+    action: "Проверить детальное состояние кворума."
+    command: "corosync-quorumtool -s"
+    expected_result: "Кворум подтверждён."
+    actual_result: ""
+    conclusion: ""
+    status: "pending"
+    evidence: ""
+
+checks_performed:
+  - "Проверка состояния кластера через pvecm status"
+  - "Проверка синхронизации времени"
+  - "Проверка DNS или /etc/hosts"
+  - "Проверка SSH-доступа"
+  - "Проверка TCP-порта 5403"
+  - "Проверка службы corosync-qnetd"
+  - "Проверка службы corosync-qdevice"
+  - "Проверка отказа одного узла"
+  - "Проверка отказа QDevice"
+
+logs_examined:
+  - path: ""
+    source: ""
+    time_range: ""
+    relevant_entries: ""
+
+metrics_examined:
+  - name: "Expected votes"
+    source: "pvecm status"
+    unit: "голоса"
+    collection_method: "CLI"
+    result: "После настройки ожидается 3."
+
+  - name: "Quorum"
+    source: "pvecm status"
+    unit: "голоса"
+    collection_method: "CLI"
+    result: "После настройки ожидается 2."
+
+# ============================================================
+# 10. ГИПОТЕЗЫ
+# ============================================================
+
+hypotheses:
+  - id: "H1"
+    description: "Двухузловой кластер теряет кворум при отказе одного узла из-за чётного количества голосов."
+    status: "confirmed"
+    verification_method: "Анализ votequorum и проверка pvecm status."
+    evidence_for:
+      - "В кластере два узла."
+      - "Для кворума при двух голосах требуется два голоса."
+    evidence_against: []
+    conclusion: "Нужен дополнительный независимый голос QDevice."
+
+  - id: "H2"
+    description: "Команда pvecm add qdevice <IP> является корректной командой подключения QDevice."
+    status: "rejected"
+    verification_method: "Выполнение команды в Proxmox."
+    evidence_for: []
+    evidence_against:
+      - "Команда завершилась ошибкой too many arguments."
+    conclusion: "Следует использовать pvecm qdevice setup <IP_QDEVICE>."
+
+# ============================================================
+# 11. ПРОВЕРЕННЫЕ И ОТВЕРГНУТЫЕ РЕШЕНИЯ
+# ============================================================
+
+tested_solutions:
+  - action: "Установка corosync-qnetd на независимый Linux-хост."
+    result: "Предоставляет серверную часть QDevice."
+    status: "successful"
+    reason: "Это предназначенное назначение corosync-qnetd."
+
+  - action: "Установка corosync-qdevice на обоих узлах Proxmox."
+    result: "Устанавливает клиентскую часть QDevice."
+    status: "successful"
+    reason: "Клиент требуется на каждом узле кластера."
+
+  - action: "Подключение через pvecm qdevice setup <IP_QDEVICE>."
+    result: "Рекомендуемая команда подключения QDevice."
+    status: "successful"
+    reason: "Команда указана как актуальный способ настройки."
+
+  - action: "Размещение QDevice на отдельном ПК с Debian/Ubuntu."
+    result: "Соответствует требованиям независимого свидетеля."
+    status: "successful"
+    reason: "QDevice не зависит от отказа одного из узлов Proxmox."
+
+rejected_solutions:
+  - action: "pvecm add qdevice <IP>"
+    reason_rejected: "Команда вызывает ошибку too many arguments и обозначена как устаревшая."
+    risk: "Настройка не завершится, а кластер останется без дополнительного голоса."
+
+  - action: "Запуск corosync-qnetd на одном из узлов Proxmox."
+    reason_rejected: "При отказе этого узла одновременно теряется QDevice."
+    risk: "QDevice не обеспечит независимый голос и отказоустойчивость."
+
+  - action: "Использование Windows или macOS в качестве QDevice-хоста."
+    reason_rejected: "corosync-qnetd предназначен для Linux."
+    risk: "Служба QNetd не будет работать штатным способом."
+
+  - action: "Ручное редактирование /etc/pve/corosync.conf для настройки QDevice."
+    reason_rejected: "Инструкция предписывает использовать pvecm qdevice setup/remove."
+    risk: "Можно повредить кластерную конфигурацию."
+
+dont_repeat:
+  - "Не использовать pvecm add qdevice <IP>; команда вызывает ошибку too many arguments. Использовать pvecm qdevice setup <IP_QDEVICE>."
+  - "Не размещать corosync-qnetd на одном из двух узлов Proxmox; при отказе этого узла будет потерян и QDevice."
+  - "Не использовать Windows или macOS в качестве QDevice-хоста; требуется Linux с corosync-qnetd."
+  - "Не редактировать /etc/pve/corosync.conf вручную для добавления QDevice."
+  - "Не считать QDevice заменой fencing для автоматического запуска HA-ресурсов."
+  - "Не считать QDevice решением кворума Ceph; для Ceph требуется отдельное планирование мониторов."
+
+# ============================================================
+# 12. КОМАНДЫ И КОНФИГУРАЦИЯ
+# ============================================================
+
+commands: |
+  # На хосте QDevice
+  apt update && apt upgrade -y
+  apt install -y corosync-qnetd
+  systemctl enable --now corosync-qnetd
+  systemctl status corosync-qnetd
+  ss -ltnp | grep 5403
+  ufw allow 5403/tcp
+  ufw reload
+  firewall-cmd --permanent --add-port=5403/tcp
+  firewall-cmd --reload
+  iptables -I INPUT -p tcp --dport 5403 -j ACCEPT
+  corosync-qnetd-tool -s
+
+  # На обоих узлах Proxmox
+  apt update
+  apt install -y corosync-qdevice
+  dpkg -l | grep corosync-qdevice
+
+  # На одном узле Proxmox
+  pvecm qdevice setup <IP_QDEVICE>
+
+  # Проверка
+  pvecm status
+  corosync-quorumtool -s
+  systemctl status corosync-qdevice
+  nc -zv <IP_QDEVICE> 5403
+
+  # SSH-проверка
+  ssh root@<IP_QDEVICE>
+  ssh-copy-id root@<IP_QDEVICE>
+
+  # Удаление QDevice
+  pvecm qdevice remove
+
+commands_by_system:
+  proxmox: |
+    apt update
+    apt install -y corosync-qdevice
+    pvecm qdevice setup <IP_QDEVICE>
+    pvecm status
+    corosync-quorumtool -s
+    systemctl status corosync-qdevice
+    pvecm qdevice remove
+
+  windows_powershell: |
+
+  linux_shell: |
+    apt update && apt upgrade -y
+    apt install -y corosync-qnetd
+    systemctl enable --now corosync-qnetd
+    systemctl status corosync-qnetd
+    ss -ltnp | grep 5403
+    corosync-qnetd-tool -s
+
+command_safety:
+  requires_administrator: true
+  requires_reboot: false
+  causes_downtime: false
+  modifies_data: false
+  modifies_configuration: true
+  reversible: true
+
+config_snippets:
+  main_configuration: |
+    QDevice должен находиться на отдельном Linux-хосте.
+    На QDevice работает corosync-qnetd.
+    На обоих узлах Proxmox работает corosync-qdevice.
+    Основная команда подключения: pvecm qdevice setup <IP_QDEVICE>.
+
+  service_configuration: |
+    corosync-qnetd:
+      enabled: true
+      port: 5403
+      protocol: tcp
+
+    corosync-qdevice:
+      enabled: true
+      nodes: 2
+
+  before_change: |
+    Expected votes: 2
+    Quorum: 2
+    QDevice: отсутствует
+
+  after_change: |
+    Expected votes: 3
+    Quorum: 2
+    Total votes: 3
+    Flags: Quorate Qdevice
+
+configuration_changes:
+  - parameter: "corosync-qnetd"
+    old_value: "не установлен"
+    new_value: "установлен и запущен на независимом Linux-хосте"
+    reason: "Предоставить внешний голос кворума."
+    reversible: true
+
+  - parameter: "corosync-qdevice"
+    old_value: "не установлен на узлах"
+    new_value: "установлен на обоих узлах Proxmox"
+    reason: "Подключить узлы к QNetd."
+    reversible: true
+
+  - parameter: "QDevice в кластере"
+    old_value: "отсутствует"
+    new_value: "настроен через pvecm qdevice setup"
+    reason: "Увеличить Expected votes до 3."
+    reversible: true
+
+# ============================================================
+# 13. ИЗМЕНЕНИЯ И ОТКАТ
+# ============================================================
+
+changes_applied:
+  - change: "Установка corosync-qnetd на отдельном Linux-хосте."
+    operator: ""
+    timestamp: ""
+    target: "QDevice-хост"
+    backup_created: false
+    change_reference: ""
+
+  - change: "Установка corosync-qdevice на узлах Proxmox."
+    operator: ""
+    timestamp: ""
+    target: "Оба узла Proxmox"
+    backup_created: false
+    change_reference: ""
+
+  - change: "Подключение QDevice к кластеру."
+    operator: ""
+    timestamp: ""
+    target: "Кластер Proxmox"
+    backup_created: false
+    change_reference: "pvecm qdevice setup <IP_QDEVICE>"
+
+rollback_available: true
+rollback_plan: |
+  Проверить состояние кластера и удалить QDevice штатной командой
+  pvecm qdevice remove. После удаления проверить pvecm status,
+  corosync-quorumtool -s и состояние corosync-qdevice.
+  Не удалять пакеты и конфигурацию вручную до проверки состояния кластера.
+
+rollback_commands: |
+  pvecm qdevice remove
+  pvecm status
+  corosync-quorumtool -s
+
+rollback_conditions:
+  - "QDevice постоянно показывает Offline."
+  - "После настройки кластер теряет кворум."
+  - "Обнаружены ошибки сертификатов или конфигурации."
+  - "QDevice размещён на зависимом от Proxmox хосте."
+
+backup:
+  created: false
+  type: "none"
+  location: ""
+  timestamp: ""
+  retention: ""
+
+# ============================================================
+# 14. ПРОВЕРКА РЕЗУЛЬТАТА
+# ============================================================
+
+success_criteria:
+  - "pvecm status показывает Quorate: Yes."
+  - "Expected votes равен 3."
+  - "Total votes равен 3 при доступности всех компонентов."
+  - "Quorum равен 2."
+  - "В таблице участников присутствует Qdevice с одним голосом."
+  - "corosync-qdevice работает на обоих узлах."
+  - "corosync-qnetd работает на отдельном хосте."
+  - "При отказе одного узла оставшийся узел сохраняет кворум."
+
+validation_steps:
+  - step: 1
+    action: "Проверить статус кластера."
+    expected_result: "Quorate: Yes; Expected votes: 3; Quorum: 2."
+    actual_result: ""
+    status: "pending"
+
+  - step: 2
+    action: "Проверить службы QDevice на обоих узлах."
+    expected_result: "corosync-qdevice имеет статус active (running)."
+    actual_result: ""
+    status: "pending"
+
+  - step: 3
+    action: "Проверить службу QNetd на отдельном хосте."
+    expected_result: "corosync-qnetd имеет статус active (running)."
+    actual_result: ""
+    status: "pending"
+
+  - step: 4
+    action: "Проверить отказ одного узла."
+    expected_result: "Оставшийся узел и QDevice сохраняют Quorate: Yes."
+    actual_result: ""
+    status: "pending"
+
+  - step: 5
+    action: "Проверить отказ только QDevice."
+    expected_result: "Два работающих узла сохраняют Quorate: Yes."
+    actual_result: ""
+    status: "pending"
+
+before_after_comparison:
+  - metric: "Expected votes"
+    before: "2"
+    after: "3"
+    expected: "3"
+    improvement: "Добавлен независимый голос QDevice."
+    source: "pvecm status"
+
+  - metric: "Quorum при отказе одного узла"
+    before: "Теряется"
+    after: "Сохраняется при доступном QDevice"
+    expected: "Сохраняется"
+    improvement: "Повышена устойчивость двухузлового кластера."
+    source: "pvecm status"
+
+post_change_observation_period: ""
+post_change_status: "not_started"
+
+regression_risk: "medium"
+known_side_effects:
+  - "Потеря одновременно одного узла и QDevice приводит к потере кворума."
+  - "QDevice не обеспечивает fencing."
+  - "QDevice не заменяет дополнительные мониторы Ceph."
+
+# ============================================================
+# 15. БЕЗОПАСНОСТЬ И РИСКИ
+# ============================================================
+
+security_impact: "medium"
+security_considerations:
+  - "Открыть TCP-порт 5403 только для узлов Proxmox."
+  - "Ограничить SSH-доступ к QDevice."
+  - "Использовать независимый хост, не размещённый на узлах Proxmox."
+  - "Проверить сертификаты и доверие между компонентами QDevice."
+  - "Не разрешать лишний сетевой доступ к QNetd."
+
+data_loss_risk: "medium"
+downtime_required: false
+estimated_downtime: ""
+requires_maintenance_window: true
+
+dangerous_operations:
+  - "pvecm qdevice remove"
+  - "Изменение конфигурации кластера при отсутствии кворума."
+  - "Остановка узла во время теста отказоустойчивости."
+  - "Ручное редактирование /etc/pve/corosync.conf."
+
+secrets_present: false
+secret_locations:
+  - ""
+
+# ============================================================
+# 16. ДОКАЗАТЕЛЬСТВА И ИСТОЧНИКИ
+# ============================================================
+
+evidence:
+  - type: "command_output"
+    description: "Ожидаемый вывод pvecm status после добавления QDevice."
+    location: ""
+    collected_at: ""
+    collected_by: ""
+    integrity_check: ""
+
+  - type: "command_output"
+    description: "Проверка состояния службы corosync-qnetd."
+    location: ""
+    collected_at: ""
+    collected_by: ""
+    integrity_check: ""
+
+  - type: "command_output"
+    description: "Проверка состояния службы corosync-qdevice."
+    location: ""
+    collected_at: ""
+    collected_by: ""
+    integrity_check: ""
+
+source_urls:
+  - "https://github.com/cladkyimaffin-hue/korona/blob/2ca49d67ec47dea81eb81fb7594053dba46f7afe/Proxmox/%D0%94%D0%BE%D0%B1%D0%B0%D0%B2%D0%B8%D1%82%D1%8C%20qdevice.md"
+
+urls:
+  - "https://github.com/cladkyimaffin-hue/korona/blob/2ca49d67ec47dea81eb81fb7594053dba46f7afe/Proxmox/%D0%94%D0%BE%D0%B0%D0%B2%D0%B8%D1%82%D1%8C%20qdevice.md"
+
+references:
+  - title: "Добавить qdevice.md"
+    url: "https://github.com/cladkyimaffin-hue/korona/blob/2ca49d67ec47dea81eb81fb7594053dba46f7afe/Proxmox/%D0%94%D0%BE%D0%B0%D0%B2%D0%B8%D1%82%D1%8C%20qdevice.md"
+    type: "internal_note"
+    accessed_at: "2026-09-07"
+    relevance: "Исходная инструкция по настройке QDevice."
+
+github:
+  repository: "cladkyimaffin-hue/korona"
+  file_path: "Proxmox/Добавить qdevice.md"
+  branch: ""
+  commit: "2ca49d67ec47dea81eb81fb7594053dba46f7afe"
+  issue: ""
+  pull_request: ""
+  related_commits:
+    - ""
+
+# ============================================================
+# 17. ИНСТРУКЦИИ ДЛЯ ИИ
+# ============================================================
+
+ai_instructions:
+  primary_goal: "Помочь безопасно настроить внешний Corosync QDevice для двухузлового кластера Proxmox VE и проверить сохранение кворума."
+
+  use_this_document_for:
+    - "Подготовка независимого Linux-хоста QDevice."
+    - "Установка corosync-qnetd и corosync-qdevice."
+    - "Настройка через pvecm qdevice setup."
+    - "Проверка кворума и состояния служб."
+    - "Планирование теста отказа одного узла."
+
+  do_not_use_this_document_for:
+    - "Настройка Ceph quorum без отдельной проверки требований Ceph."
+    - "Настройка fencing без дополнительной документации."
+    - "Размещение QDevice на узле Proxmox."
+    - "Автоматическое выполнение команд без проверки окружения."
+
+  required_context:
+    - "Версия Proxmox VE."
+    - "IP-адреса обоих узлов."
+    - "IP-адрес независимого QDevice-хоста."
+    - "Состояние кластера через pvecm status."
+    - "ОС QDevice-хоста."
+    - "Состояние firewall и TCP-порта 5403."
+
+  ask_before_recommending:
+    - "Изменение конфигурации кластера."
+    - "Выполнение pvecm qdevice setup."
+    - "Удаление QDevice."
+    - "Остановка узла для теста отказоустойчивости."
+    - "Изменение firewall."
+    - "Настройка HA и fencing."
+
+  response_requirements:
+    - "Сначала проверить, что QDevice размещён на независимом хосте."
+    - "Проверить наличие кворума до изменения конфигурации."
+    - "Не предлагать pvecm add qdevice <IP>."
+    - "Проверить доступность TCP-порта 5403."
+    - "Отдельно предупредить, что QDevice не заменяет fencing."
+    - "Отдельно предупредить, что QDevice не решает кворум Ceph."
+    - "Проверить результат через pvecm status."
+
+  confidence_limitations:
+    - "Исходный файл содержит инструкцию и ожидаемые результаты, но не содержит полного фактического вывода успешной настройки."
+    - "Команды и параметры требуют проверки с учётом версии Proxmox VE."
+    - "Отказоустойчивость HA не подтверждается без проверки fencing."
+
+key_takeaways:
+  - "Для двухузлового кластера нужен независимый третий голос QDevice."
+  - "На QDevice устанавливается corosync-qnetd, а на обоих узлах Proxmox — corosync-qdevice."
+  - "Для подключения используется pvecm qdevice setup <IP_QDEVICE>."
+  - "После настройки ожидаются Expected votes: 3 и Quorum: 2."
+  - "QDevice должен быть физически или логически независим от обоих узлов Proxmox."
+  - "QDevice сохраняет кворум, но не заменяет fencing и дополнительные мониторы Ceph."
+
+assumptions:
+  - "QDevice работает под управлением Debian или Ubuntu."
+  - "QDevice имеет статический IP-адрес."
+  - "TCP-порт 5403 доступен с обоих узлов Proxmox."
+  - "SSH-доступ к QDevice возможен с узла Proxmox."
+  - "Кластер до настройки QDevice находится в состоянии Quorate."
+  - "Время на узлах и QDevice синхронизировано."
+
+open_questions:
+  - "Каковы фактические имена и IP-адреса двух узлов Proxmox?"
+  - "Каковы фактические версия Proxmox VE и ОС QDevice?"
+  - "Подключение QDevice было успешно выполнено или приведены только плановые шаги?"
+  - "Настроен ли fencing для HA?"
+  - "Используется ли в кластере Ceph и настроены ли его мониторы?"
+
+# ============================================================
+# 18. КАЧЕСТВО ДАННЫХ
+# ============================================================
+
+data_quality:
+  completeness: "partial"
+  accuracy: "partially_verified"
+  freshness: "current"
+  reproducibility: "partially_reproducible"
+  source_quality: "primary"
+
+missing_data:
+  - "Нет фактических имён и IP-адресов пользовательских узлов в основной пошаговой инструкции."
+  - "Нет фактического вывода pvecm status после добавления QDevice."
+  - "Нет подтверждения успешного теста отказа одного узла."
+  - "Не указана версия Proxmox VE для примерной схемы."
+  - "Не указана фактическая ОС и версия QDevice-хоста."
+  - "Не приведены фактические журналы служб."
+  - "Не указано, настроено ли fencing."
+  - "Не указана конфигурация Ceph, если он используется."
+
+uncertainties:
+  - "Фактический результат команды pvecm qdevice setup в исходном документе не подтверждён."
+  - "Статус QDevice после настройки указан как ожидаемый, а не как фактически зафиксированный."
+  - "Совместимость команд и служб может зависеть от версии Proxmox VE и Debian/Ubuntu."
+  - "Утверждение о сохранении работы VM/CT при отказе узла требует отдельного теста."
+
+needs_follow_up: true
+follow_up_tasks:
+  - task: "Выполнить pvecm status после настройки и сохранить вывод."
+    owner: ""
+    due_date: ""
+    status: "pending"
+
+  - task: "Проверить corosync-qdevice на обоих узлах."
+    owner: ""
+    due_date: ""
+    status: "pending"
+
+  - task: "Проверить corosync-qnetd и corosync-qnetd-tool на QDevice."
+    owner: ""
+    due_date: ""
+    status: "pending"
+
+  - task: "Провести контролируемый тест отказа одного узла."
+    owner: ""
+    due_date: ""
+    status: "pending"
+
+  - task: "Проверить наличие и работоспособность fencing для HA."
+    owner: ""
+    due_date: ""
+    status: "pending"
+
+# ============================================================
+# 19. АУДИТ ДОКУМЕНТА
+# ============================================================
+
+audit:
+  created_by: "cladkyimaffin-hue"
+  created_at: "2026-08-30"
+  last_modified_by: "cladkyimaffin-hue"
+  last_modified_at: "2026-09-02"
+  reviewed_by: "cladkyimaffin-hue"
+  reviewed_at: ""
+  review_result: "approved"
+
+change_history:
+  - version: "1.0"
+    date: "2026-08-30"
+    author: "cladkyimaffin-hue"
+    changes:
+      - "Создана инструкция по настройке QDevice."
+
+# ============================================================
+# 20. ФИНАЛЬНЫЕ ПОЛЯ
+# ============================================================
+
+review_notes: |
+  Инструкция описывает общий порядок настройки QDevice для двухузлового
+  кластера Proxmox VE. Перед применением необходимо заменить примерные
+  IP-адреса, проверить версию Proxmox, наличие кворума, SSH-доступ,
+  TCP-порт 5403 и независимость QDevice-хоста. Успешность настройки
+  должна подтверждаться фактическим выводом pvecm status.
+
+notes: |
+  QDevice добавляет голос кворума Proxmox, но не является полноценным
+  третьим узлом Ceph и не обеспечивает fencing. Одновременная потеря
+  одного узла Proxmox и QDevice приводит к потере кворума.
 ---
 ### USER
 Proxmox у меня два сервера как настроить qdevice
