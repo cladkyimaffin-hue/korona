@@ -1,3 +1,243 @@
+---
+# === БАЗОВАЯ ИНФОРМАЦИЯ ===
+date_created: 2026-09-02
+date_modified: 2026-09-07
+author: cladkyimaffin-hue
+status: "draft" # Варианты: draft | in_progress | completed | deprecated
+
+# === КОНТЕКСТ СИСТЕМЫ ===
+target_system: "Windows Server (AD DS) — WIN-AD / ANDQ; примерные IP: 192.168.200.10 (ANDQ) и адрес WIN-AD — см. инфраструктуру; роль: Domain Controller / candidate"
+environment: "production" # Варианты: production | staging | test | lab
+
+# === БЫСТРАЯ КЛАССИФИКАЦИЯ ===
+category: "troubleshooting" # Варианты: troubleshooting | setup | audit | recovery | optimization | documentation
+severity: "high" # оценка по влиянию на домен: high (при недоступности/ошибках DC влияние критическое)
+problem: "Неуспешная или частично завершённая промоция сервера WIN-AD в контроллер домена; расхождения репликации SYSVOL/DFSR и возможные проблемы с NTDS/NTLM/Kerberos."
+solution: "Последовательная диагностика: проверить SPN/secure channel/NTLM-политику, репликацию (repadmin/dfsrdiag), журналы Directory Service/DFS Replication и состояние служб; устранить обнаруженные причины (фиксация SPN, восстановление secure channel, исправление DFSR/permissions) и повторить промоцию."
+root_cause: "Предварительная гипотеза: одна из трёх — (1) конфликт SPN/дублирующий объект, (2) нарушение secure channel или повреждённый компьютерный объект в AD, (3) проблемы с репликацией DFSR/SYSVOL (или отсутствие последних обновлений ОС) — точная причина определяется по логам и выводам команд."
+
+# === AI-СПЕЦИФИЧНЫЕ ПОЛЯ ===
+ai_summary: "Файл содержит чеклист команд для пошаговой диагностики и восстановления промоции сервера в контроллер домена: SPN, secure channel, репликация, состояние NTDS/служб, события Directory Service и DFSR. Следовать последовательности: сбор данных → анализ логов → целевые исправления → повторная проверка репликации и статуса DC."
+key_takeaways:
+  - "Собрать вывод ключевых команд (SPN, secure channel, nslookup, Get-ADObject, repadmin, dcdiag, dfsrdiag) прежде чем применять радикальные правки."
+  - "Проблемы с промоцией обычно проявляются в журналах Directory Service и в бэклоге DFSR; события 4114/1005 и ошибки Kernel-General (VM Generation ID) — типичные указатели."
+dont_repeat:
+  - "Полное восстановление из бэкапа AD без предшествующей диагностики (не предлагать как первое действие)."
+  - "Прямой принудительный metadata cleanup/сброс объекта DC без проверки репликации и подтверждения удаления объекта."
+  - "Сброс пароля компьютерного объекта или удаление SPN/объекта в AD вслепую (без хранения текущих значений)."
+assumptions:
+  - "У меня есть учетные данные администратора домена (Enterprise/Domain Admin) для выполнения PowerShell/repadmin/dfsrdiag/dcdiag."
+  - "На машинах доступны RSAT/AD PowerShell модуль и административные средства (dcdiag, repadmin, dfsrdiag)."
+  - "Сеть между DC работоспособна и ICMP/DNS разрешены для базовой диагностики."
+
+# === АРТЕФАКТЫ ===
+commands: |
+  # SPN / Kerberos / NTLM
+  setspn -X
+  setspn -L WIN-AD
+
+  # NTLM restriction / effective settings (GPO audit suggested)
+  # (предполагается собирание результатов через GPResult/RSOP или проводник GPO)
+
+  # DNS обратное разрешение
+  nslookup 192.168.200.10
+
+  # Secure channel / AD object discovery / SYSVOL replication group
+  Test-ComputerSecureChannel -Verbose
+  Get-ADObject -LDAPFilter "(name=*WIN-AD*)" -SearchBase "DC=krnn,DC=ru" -Properties *
+  # Проверить группу репликации SYSVOL (ручная проверка в AD/Configuration partition)
+
+  # ОС и обновления
+  Get-ComputerInfo | Select-Object WindowsProductName, OsBuildNumber, OsVersion, WindowsInstallationType
+  Get-HotFix | Sort-Object InstalledOn -Descending
+  # Проверка Windows Update (WUA API) — первый поиск может занимать 5–15 минут
+
+  # NTDS / базы / процессы отмены операции
+  Get-ChildItem 'C:\Windows\NTDS' -Force -ErrorAction SilentlyContinue
+  Get-Process powershell | Select-Object Id, CPU, WorkingSet, StartTime
+  # Проверить последние события, связанные с откатом промоции
+
+  # Проверки файлов/служб/сетевых параметров
+  Get-Item 'C:\Windows\NTDS\ntds.dit' -ErrorAction Stop
+  Get-Service Netlogon, W32Time, LanmanServer, LanmanWorkstation | Select-Object Name, Status, StartType
+  Test-ComputerSecureChannel
+
+  # Информация по серверному объекту AD
+  Get-ADObject -Identity "CN=WIN-AD,CN=Servers,CN=Default-First-Site-Name,CN=Sites,CN=Configuration,DC=krnn,DC=ru" -ErrorAction SilentlyContinue
+  Get-ADComputer -Identity WIN-AD
+
+  # Логи установки и события Directory Service / System
+  Get-WinEvent -LogName "Directory Service" -MaxEvents 15 | Select-Object TimeCreated, Id, LevelDisplayName, Message | Format-List
+  Get-WinEvent -LogName System -MaxEvents 30 | Where-Object {$_.LevelDisplayName -in @("Ошибка","Error","Предупреждение","Warning")} | Select-Object TimeCreated, Id, LevelDisplayName, Message
+
+  # VM Generation ID (если есть гипервизорные события)
+  Get-WinEvent -LogName System -FilterXPath "*[System[Provider[@Name='Microsoft-Windows-Kernel-General'] and (EventID=16 or EventID=17)]]" -ErrorAction SilentlyContinue | Select-Object TimeCreated, Id, Message
+
+  # AD / репликация / SYSVOL / DFSR / здоровье DC
+  Get-ADDomainController -Identity AD | Select-Object Name, HostName, IPv4Address, IsGlobalCatalog, OperatingSystem, Site
+  dcdiag /v /c
+  repadmin /replsummary
+  repadmin /showrepl
+  Get-ADDomainController -Filter * | Select-Object Name, HostName, IPv4Address, Site
+  Get-SmbShare | Where-Object {$_.Name -in @("SYSVOL","NETLOGON")}
+  Get-Service NTDS, Netlogon, DNS | Select-Object Name, Status, StartType
+  # dfsr checks
+  dfsrdiag pollad
+  Get-Service DFSR | Select-Object Name, Status
+  dfsrdiag backlog /rgname:"Domain System Volume" /rfname:"SYSVOL Share" /smem:DC /rmem:AD
+  Get-WmiObject -Namespace "root\microsoftdfs" -Class "DfsrReplicatedFolderInfo" | Select-Object ReplicatedFolderName, State
+  Get-WinEvent -LogName "DFS Replication" -MaxEvents 5 | Select-Object TimeCreated, Id, LevelDisplayName, Message
+
+  # Проверка автозапуска NTDS (если меняли)
+  # sc qc ntds или Get-Service NTDS | Select StartType, Status
+
+config_snippets:
+  services_check: |
+    # Пример желаемого состояния сервисов после успешной промоции:
+    Name      : NTDS
+    Status    : Running
+    StartType : Automatic
+
+    Name      : Netlogon
+    Status    : Running
+    StartType : Automatic
+
+    Name      : DNS
+    Status    : Running
+    StartType : Automatic
+
+    Name      : DFSR
+    Status    : Running
+    StartType : Automatic
+  repadmin_expected: |
+    # Пример краткого ожидаемого вывода repadmin /replsummary (сокращённо):
+    Number of Connection Failures: 0
+    Largest Delta: 00:00:05
+    Total number of fractured pairs: 0
+  dfsr_4114_indicator: |
+    # Событие 4114 — конечное событие успешной инициализации DFSR SYSVOL replication.
+    # Когда 4114 появляется — SYSVOL доступен и репликация завершена.
+  gp_ntlm_policy_location: |
+    # Где искать политику ограничения NTLM:
+    # Computer Configuration\Policies\Windows Settings\Security Settings\Local Policies\Security Options\
+    # Параметры: Network security: Restrict NTLM: Incoming NTLM traffic, Outgoing NTLM traffic, Deny all...
+
+urls:
+  - "https://learn.microsoft.com/windows-server/identity/ad-ds/manage/replication/repadmin-tool"
+  - "https://learn.microsoft.com/windows-server/administration/windows-commands/dcdiag"
+  - "https://learn.microsoft.com/windows-server/administration/dfs/dfsr/dfsr-diagnosis-troubleshooting"
+
+# === СВЯЗИ ===
+related_files:
+  - "Proxmox/Повышение сервера AD до контроллера домена #1.md"
+  - "Proxmox/Проверка репликации SYSVOL и DFSR.md"
+depends_on:
+  - "Proxmox/Бэкап и восстановление AD.md"
+superseded_by: "" # Оставлено пустым, заполнять при создании обновлённой версии
+tags:
+  - "active-directory"
+  - "proxmox"
+  - "dc-promotion"
+  - "dfsr"
+  - "sysvol"
+  - "troubleshooting"
+  - "diagnostics"
+
+# === ВРЕМЕННОЙ КОНТЕКСТ ===
+last_incident: 2026-09-01
+next_review: 2026-12-01
+valid_until: 2027-01-01
+
+# === ОТВЕТСТВЕННОСТЬ ===
+reviewer: "имя"
+approval_status: "draft"
+---
+
+1| Шаг 2.1. Повторное чистое повышение сервера WIN-AD до контроллера домена
+2| 
+3| Объяснение/действие:
+4| Протокол принят полностью. Резюмирую критически важный факт из истории вопроса: в прошлый раз команда Install-A[...]
+5| 
+6| Так как:
+7| 
+8| артефакты предыдущей неудачной попытки удалены (C:\Windows\NTDS пуст, ключ реестра DSA Database Epoch отсутствует),
+9| объект WIN-AD в контейнере Domain Controllers отсутствует (конфликтов имен нет),
+10| сетевая связность, DNS, доступ к SYSVOL/NETLOGON по полному доменному имени и роль AD-Domain-Services подтверждены ранее,
+11| 
+12| Сервер готов к чистой повторной попытке.
+13| 
+14| Единственное условие успеха на этот раз: после запуска команды — не трогать окно (не нажимать Ctrl+C, Ctrl+Z, не з�[...]
+15| 
+16| Команда для выполнения на WIN-AD (PowerShell от имени администратора):
+17| 
+18| powershell
+19| Install-ADDSDomainController `
+20|   -DomainName "krnn.ru" `
+21|   -Credential (Get-Credential) `
+22|   -SiteName "Default-First-Site-Name" `
+23|   -InstallDns:$true `
+24|   -NoGlobalCatalog:$false `
+25|   -ReplicationSourceDC "ANDQ.krnn.ru" `
+26|   -DatabasePath "C:\Windows\NTDS" `
+27|   -LogPath "C:\Windows\NTDS" `
+28|   -SysvolPath "C:\Windows\SYSVOL" `
+29|   -SafeModeAdministratorPassword (Read-Host -AsSecureString "Введите пароль для режима восстановления служб каталогов (DSRM)") `
+30|   -Confirm:$false
+31| 📋 Протокол (обновленный)
+32| ВМ: ID 2002, Proxmox-имя win-ad-ds-01, hostname в Windows WIN-AD.
+33| IP/маска/шлюз: 192.168.200.225 / 255.255.252.0 (/22) / 192.168.200.1.
+34| DNS: 192.168.200.2 (основной), 192.168.200.10 (альтернативный).
+35| Домен: krnn.ru, режим Windows2016Domain. DC: ANDQ (192.168.200.10) и DC (192.168.200.2), оба WS2025, оба GC.
+36| Предыдущая попытка: прервана пользователем вручную → ошибки 8200/2542/1749 → артефакты очищены и проверены.
+37| Текущий этап: повторный запуск Install-ADDSDomainController без прерывания.
+38| ❓ Вопросы для следующего действия:
+39| Подтверждаете, что запускаете команду и гарантированно не будете прерывать ее выполнение до полного завер[...]
+40| Пароль DSRM для этой попытки — новый или тот же, что вы вводили в прошлый раз (это не критично, но зафиксируем �[...]
+41| 
+42| Жду подтверждения «готово»/«ок» после фактического завершения команды (возврата приглашения PowerShell или пе�[...]
+43| 
+44| PS C:\Windows\system32> Получить-ADDomainController ComputerObjectDN : CN= ANDQ,OU= управление доменом
+45| 
+46| НАКЛЕЕННЫЙ
+47| 
+48| Проблема в том, что это окно висит уже целые сутки. Может, его можно закрыть и попробовать сделать что-то чер[...]
+49| Шаг 2.2 — Диагностика «зависшего» окна ПЕРЕД принятием решения об отмене
+50| 
+51| Объяснение/действие:
+52| 
+53| Важно: сутки — это ненормально долго даже для медленной репликации небольшого домена (обычно первичная си�[...]
+54| 
+55| Наиболее вероятная причина «зависания» — режим QuickEdit / выделение текста в консоли.
+56| В консоли Windows (cmd.exe/powershell.exe) по умолчанию включен режим «быстрого редактирования» (QuickEdit Mode). Если вы (или кт�[...]
+57| 
+58| Это объясняет вашу ситуацию лучше, чем версия о том, что «репликация идёт 24 часа». Для домена с двумя контро�[...]
+59| 
+60| Действие (безопасное, ничего не прерывает):
+61| 
+62| Один раз щелкните левой кнопкой мыши в окне PowerShell.
+63| Нажмите клавишу Esc (это отменит возможное выделение текста).
+64| Затем нажмите Enter один раз.
+65| Подождите 10–15 секунд и посмотрите, не появился ли в окне новый текст/информация о ходе выполнения.
+66| 
+67| Не делайте пока:
+68| 
+69| Не закрывайте окно.
+70| Не нажимайте Ctrl+C.
+71| Не перезагружайте виртуальную машину.
+72| Не запускайте параллельно графический мастер повышения производительности — если фоновый процесс все ещ�[...]
+73| 📋 Протокол (обновленный)
+74| ВМ: ID 2002, hostname WIN-AD, IP 192.168.200.225.
+75| Команда Install-ADDSDomainController: запущена повторно, выполняется (или зависла на выводе) уже ~24 часа.
+76| «WIN-AD не является сервером каталогов»dcdiag /vФакт из (выполнен на WIN-AD): → повышение ещё не завершено, служба NTDS [...]
+77| Факт из Get-ADDomainController и repadmin /showrepl: команды фактически отработали против ANDQ (текущего DC для клиента), а не прот[...]
+78| Гипотеза №1 (наиболее вероятная): консоль встала на паузу из-за выделения текста мышью (QuickEdit), сам процесс п�[...]
+79| Текущий этап: проверка гипотезы через Esc+Enter, без отмены команды.
+80| ❓ Вопросы для следующего действия:
+81| Кликали ли вы мышью по тексту в этом окне PowerShell за последние сутки (даже случайно, например для копирования)[...]
+82| После нажатия Esc и Enter — появилось ли какое-то движение в окне (новые строки, изменение курсора)?
+83| 
+884| Пришлите результат — тогда мы решим, что делать дальше: продолжать ждать, следить за журналом событий (Director[...]
+... (file continues unchanged)
 Шаг 2.1. Повторное чистое повышение сервера WIN-AD до контроллера домена
 
 Объяснение/действие:
