@@ -1,3 +1,799 @@
+---
+# ============================================================
+# 1. БАЗОВАЯ ИНФОРМАЦИЯ
+# ============================================================
+
+document_id: "PROXMOX-RDS-2003-2026-001"
+title: "Настройка терминального сервера Windows Server 2022 на ВМ 2003"
+slug: "настройка-тс-windows-server-2022-id2003"
+document_type: "runbook"
+language: "ru"
+version: "1.0"
+schema_version: "1.0"
+status: "in_progress"
+confidentiality: "internal"
+priority: "high"
+
+date_created: 2026-09-07
+date_modified: 2026-09-07
+date_completed: ""
+last_reviewed: ""
+next_review: ""
+valid_until: ""
+
+author: "cladkyimaffin-hue"
+maintainer: "cladkyimaffin-hue"
+reviewer: ""
+owner_team: ""
+approval_status: "draft"
+
+# ============================================================
+# 2. КЛАССИФИКАЦИЯ
+# ============================================================
+
+category: "setup"
+domain: "virtualization"
+subdomain: "remote-desktop-services"
+
+tags:
+  - "Proxmox"
+  - "Windows Server 2022"
+  - "RDS"
+  - "Remote Desktop Services"
+  - "терминальный сервер"
+  - "RDS Session Host"
+  - "RDS Licensing"
+  - "RDS CAL"
+  - "Active Directory"
+  - "krnn.ru"
+  - "VM 2003"
+  - "TC"
+  - "AD"
+
+keywords:
+  - "Windows Server 2022 RDS"
+  - "New-RDSessionDeployment"
+  - "New-RDSessionCollection"
+  - "Remote Desktop Users"
+  - "сервер лицензирования RDS"
+  - "120-дневный льготный период"
+
+aliases:
+  - "Терминальный сервер TC"
+  - "RDS на Windows Server 2022"
+  - "Настройка ТС ID2003"
+  - "ВМ 2003 TC"
+
+related_topics:
+  - "Active Directory"
+  - "Remote Desktop Session Host"
+  - "Remote Desktop Licensing"
+  - "RDS CAL"
+  - "лицензирование Windows Server"
+  - "Proxmox VE"
+
+# ============================================================
+# 3. СИСТЕМА И ОКРУЖЕНИЕ
+# ============================================================
+
+environment: "production"
+system_role: "терминальный сервер RDS для многопользовательских подключений"
+system_name: "TC"
+hostname: "TC"
+fqdn: "TC.KRNN.RU"
+asset_id: ""
+vm_id: "2003"
+cluster: ""
+node: ""
+domain: "krnn.ru"
+netbios_domain: "krnn"
+
+operating_system:
+  name: "Windows Server"
+  version: "2022"
+  edition: ""
+  architecture: ""
+  build: ""
+  language: ""
+  timezone: ""
+
+platform:
+  name: "Proxmox VE"
+  version: ""
+  node_version: ""
+  kernel: ""
+  hypervisor: "QEMU/KVM"
+  machine_type: ""
+  firmware: ""
+
+network:
+  ip_addresses: []
+  mac_addresses: []
+  vlan: ""
+  subnet: ""
+  gateway: ""
+  dns_servers: []
+  reverse_proxy: ""
+  firewall_zone: ""
+
+hardware:
+  cpu_model: ""
+  cpu_sockets: ""
+  cpu_cores: "4 vCPU"
+  cpu_threads: ""
+  memory_allocated: "48.15 GiB"
+  memory_type: ""
+  storage:
+    - type: "boot disk"
+      name: ""
+      size: "500 GiB"
+      filesystem: ""
+      mount_point: ""
+
+# ============================================================
+# 4. ЦЕЛЬ И ТРЕБОВАНИЯ
+# ============================================================
+
+objective: |
+  Настроить ВМ 2003 (TC) как полноценный многопользовательский
+  терминальный сервер Remote Desktop Services для пользователей
+  домена krnn.ru.
+
+requirements:
+  user_mode: "многопользовательский режим"
+  expected_users: "не менее 10 пользователей"
+  session_host_required: true
+  connection_broker_required: true
+  session_collection_required: true
+  licensing_server_required: true
+  licensing_server_location: "сервер AD"
+  licensing_model: ""
+  rds_cal_count: "не менее 10"
+  rds_cal_status: "отсутствуют на момент создания документа"
+
+# ============================================================
+# 5. КРАТКОЕ ОПИСАНИЕ
+# ============================================================
+
+problem: |
+  Требовалось превратить ВМ 2003 под управлением Windows Server 2022
+  в многопользовательский терминальный сервер RDS для пользователей
+  домена krnn.ru.
+
+summary: |
+  На сервере TC была установлена роль RDS Session Host, создано
+  развертывание RDS с ролями Connection Broker и Session Host,
+  а также создана коллекция сеансов Terminal. Доступ пользователей
+  был настроен через локальную группу Remote Desktop Users, после чего
+  тестовое подключение по RDP прошло успешно. Роль RDS Licensing
+  установлена на сервере AD, однако RDS CAL пока отсутствуют.
+
+ai_summary: |
+  ВМ 2003 (TC.KRNN.RU) на Windows Server 2022 настроена как RDS Session Host
+  для минимум 10 пользователей домена krnn.ru. Установлены роли RDS Session Host
+  и RDS Licensing на сервере AD, создано RDS-развертывание и коллекция Terminal,
+  а подключение пользователя по RDP успешно проверено. Полное лицензирование
+  RDS ещё не завершено, поскольку RDS CAL пока не приобретены.
+
+business_impact: |
+  После завершения настройки пользователи смогут работать в единой
+  терминальной среде Windows Server 2022.
+
+technical_impact: |
+  На сервере TC изменена конфигурация RDS, добавлены роли служб удалённых
+  рабочих столов, создана коллекция сеансов и настроены параметры лицензирования.
+
+user_impact: |
+  Пользователи домена krnn.ru получили возможность подключаться к серверу TC
+  по RDP при наличии соответствующих разрешений.
+
+severity: "high"
+incident_status: "monitoring"
+
+# ============================================================
+# 6. КОМПОНЕНТЫ И ВЕРСИИ
+# ============================================================
+
+components:
+  - name: "RDS Session Host"
+    type: "Windows Server role"
+    version: "Windows Server 2022"
+    status_before: "not_configured"
+    status_after: "installed"
+    configuration: "VM 2003 / TC.KRNN.RU"
+
+  - name: "RDS Connection Broker"
+    type: "Windows Server role"
+    version: "Windows Server 2022"
+    status_before: "not_configured"
+    status_after: "configured"
+    configuration: "TC.KRNN.RU"
+
+  - name: "RDS Session Collection"
+    type: "RDS configuration"
+    version: ""
+    status_before: "absent"
+    status_after: "created"
+    configuration: "CollectionName: Terminal"
+
+  - name: "RDS Licensing"
+    type: "Windows Server role"
+    version: "Windows Server 2022"
+    status_before: "not_installed"
+    status_after: "installed"
+    configuration: "Server: AD"
+
+  - name: "RDS CAL"
+    type: "license"
+    version: ""
+    status_before: "not_available"
+    status_after: "not_available"
+    configuration: "Требуется приобрести не менее 10 лицензий"
+
+dependencies:
+  - name: "Active Directory Domain Services"
+    version: ""
+    required: true
+    purpose: "Аутентификация пользователей и поиск доменных групп"
+
+  - name: "DNS"
+    version: ""
+    required: true
+    purpose: "Разрешение имён TC.KRNN.RU и AD.krnn.ru"
+
+  - name: "RDS CAL"
+    version: ""
+    required: true
+    purpose: "Легальное многопользовательское использование RDS после льготного периода"
+
+related_files:
+  - "Proxmox/Proxmox не правильно отображали расход RAM QEMU Guest Agent.md"
+
+depends_on:
+  - "Proxmox/Настройка контроллера домена Windows Server.md"
+
+supersedes: ""
+superseded_by: ""
+
+# ============================================================
+# 7. ТЕКУЩЕЕ СОСТОЯНИЕ
+# ============================================================
+
+current_state:
+  session_host: "configured"
+  connection_broker: "configured"
+  session_collection: "Terminal"
+  user_access: "tested_successfully"
+  licensing_role_on_ad: "installed"
+  licensing_server_activation: "reported_as_completed_in_dialog"
+  rds_cals: "not_installed"
+  licensing_mode: "Per User"
+  licensing_mode_registry_value: 4
+  licensing_server_configured_on_tc: "AD.krnn.ru"
+  grace_period: "ожидается использование 120-дневного периода"
+  final_production_readiness: "not_ready_until_licensing_is_completed"
+
+# ============================================================
+# 8. СИМПТОМЫ И НАБЛЮДЕНИЯ
+# ============================================================
+
+symptoms:
+  - "Изначально отсутствовала настроенная терминальная служба для многопользовательской работы."
+  - "New-RDSessionDeployment не принял короткое имя TC вместо FQDN."
+  - "Set-RDSessionCollectionConfiguration не содержит параметра UserGroups."
+  - "Командлет Grant-RDAccess отсутствует в используемой среде."
+  - "Группа KRNN\\Domain Users не была найдена по указанному имени."
+  - "На рядовом сервере TC отсутствовал модуль ActiveDirectory PowerShell."
+  - "Сервер лицензирования RDS не был изначально указан в конфигурации коллекции."
+
+observed_behavior:
+  - metric: "vCPU"
+    value_before: "4"
+    value_after: "4"
+    expected_value: "4"
+    unit: "vCPU"
+    source: "Proxmox"
+    timestamp: ""
+
+  - metric: "RAM"
+    value_before: "48.15"
+    value_after: "48.15"
+    expected_value: ""
+    unit: "GiB"
+    source: "Proxmox"
+    timestamp: ""
+
+  - metric: "Boot disk"
+    value_before: "500"
+    value_after: "500"
+    expected_value: ""
+    unit: "GiB"
+    source: "Proxmox"
+    timestamp: ""
+
+expected_behavior:
+  - "Не менее 10 пользователей могут одновременно подключаться по RDP."
+  - "Пользователи домена krnn.ru проходят аутентификацию через Active Directory."
+  - "Коллекция Terminal принимает пользовательские подключения."
+  - "После приобретения CAL сервер использует корректное лицензирование RDS."
+  - "Сервер лицензирования AD доступен с TC."
+
+actual_behavior:
+  - "Тестовое подключение по RDP к TC прошло успешно."
+  - "Коллекция Terminal создана."
+  - "Параметры LicensingMode=4 и LicensingServer=AD.krnn.ru записаны в реестр TC."
+  - "RDS CAL ещё не установлены."
+
+affected_services:
+  - name: "Remote Desktop Services"
+    impact: "Настроен многопользовательский доступ"
+    availability: "available"
+
+  - name: "RDS Licensing"
+    impact: "Роль установлена, лицензии отсутствуют"
+    availability: "degraded"
+
+# ============================================================
+# 9. КОНФИГУРАЦИЯ RDS
+# ============================================================
+
+rds_deployment:
+  connection_broker: "TC.KRNN.RU"
+  session_host: "TC.KRNN.RU"
+  collection_name: "Terminal"
+  collection_type: "PooledUnmanaged"
+  collection_size: 1
+  resource_type: "Удаленный рабочий стол"
+
+rds_access:
+  local_group: "Remote Desktop Users"
+  domain: "krnn"
+  domain_group: "Пользователи домена"
+  access_scope: "все пользователи домена"
+  test_result: "успешное RDP-подключение"
+  recommendation: |
+    Для production лучше использовать отдельную доменную группу,
+    например KRNN\\RDS Users, а не предоставлять доступ всем
+    пользователям группы «Пользователи домена».
+
+rds_licensing:
+  licensing_server: "AD.krnn.ru"
+  licensing_role_host: "AD"
+  licensing_mode: "Per User"
+  licensing_mode_registry_value: 4
+  rds_cal_type: "User CAL"
+  required_cal_count: 10
+  installed_cal_count: 0
+  grace_period_days: 120
+  licensing_status: "не завершено из-за отсутствия лицензий"
+
+# ============================================================
+# 10. ДИАГНОСТИКА
+# ============================================================
+
+diagnostic_steps:
+  - step: 1
+    action: "Проверить конфигурацию сервера и требования к RDS"
+    command: ""
+    expected_result: "Подтверждены ОС, домен, ресурсы и количество пользователей"
+    actual_result: "Windows Server 2022, домен krnn.ru, 4 vCPU, 48.15 GiB RAM, 500 GiB диск, минимум 10 пользователей"
+    conclusion: "Ресурсы достаточны для первоначального развёртывания"
+    status: "completed"
+    evidence: "Исходный Markdown-файл"
+
+  - step: 2
+    action: "Установить роль RDS Session Host"
+    command: "Install-WindowsFeature -Name RDS-RD-Server -IncludeManagementTools"
+    expected_result: "Success: True; Install State: Installed"
+    actual_result: "Роль установлена, сервер перезагружен"
+    conclusion: "RDS Session Host установлен"
+    status: "completed"
+    evidence: "Исходный Markdown-файл"
+
+  - step: 3
+    action: "Создать RDS Deployment"
+    command: "New-RDSessionDeployment -ConnectionBroker $FQDN -SessionHost $FQDN"
+    expected_result: "Созданы роли Connection Broker и Session Host"
+    actual_result: "Развертывание создано после использования FQDN TC.KRNN.RU"
+    conclusion: "Короткое имя TC использовать нельзя; требуется FQDN"
+    status: "completed"
+    evidence: "Вывод Server Roles TC.KRNN.RU"
+
+  - step: 4
+    action: "Создать коллекцию сеансов"
+    command: "New-RDSessionCollection -CollectionName 'Terminal' -SessionHost 'TC.KRNN.RU' -ConnectionBroker 'TC.KRNN.RU'"
+    expected_result: "Создана коллекция Terminal"
+    actual_result: "Коллекция Terminal создана"
+    conclusion: "Коллекция готова к настройке"
+    status: "completed"
+    evidence: "Вывод Get-RDSessionCollection"
+
+  - step: 5
+    action: "Настроить доступ пользователей"
+    command: "Add-LocalGroupMember -Group 'Remote Desktop Users' -Member 'KRNN\\Пользователи домена'"
+    expected_result: "Доменная группа добавлена в локальную группу RDP"
+    actual_result: "Группа была добавлена; RDP-подключение успешно"
+    conclusion: "Доступ пользователей проверен"
+    status: "completed"
+    evidence: "Успешное тестовое подключение"
+
+  - step: 6
+    action: "Установить роль RDS Licensing на AD"
+    command: "Install-WindowsFeature -Name RDS-Licensing -IncludeManagementTools"
+    expected_result: "Install State: Installed"
+    actual_result: "Роль установлена успешно"
+    conclusion: "Сервер лицензирования подготовлен"
+    status: "completed"
+    evidence: "Вывод Get-WindowsFeature -Name RDS-Licensing"
+
+  - step: 7
+    action: "Проверить наличие RDS CAL"
+    command: ""
+    expected_result: "Установлены минимум 10 действительных RDS CAL"
+    actual_result: "Лицензии отсутствуют"
+    conclusion: "Использование возможно только в пределах действующего льготного периода и с учётом лицензионных требований"
+    status: "pending"
+    evidence: ""
+
+# ============================================================
+# 11. ПРОВЕРЕННЫЕ И ОТВЕРГНУТЫЕ КОМАНДЫ
+# ============================================================
+
+tested_solutions:
+  - action: "Использование FQDN TC.KRNN.RU вместо TC"
+    result: "RDS Deployment создан"
+    status: "successful"
+    reason: "New-RDSessionDeployment требует полное доменное имя"
+
+  - action: "Добавление доменной группы в локальную группу Remote Desktop Users"
+    result: "Тестовое подключение по RDP успешно"
+    status: "successful"
+    reason: "Доступ к RDS Session Host предоставляется через локальную группу"
+
+  - action: "Настройка LicensingMode и LicensingServer через реестр"
+    result: "LicensingMode=4, LicensingServer=AD.krnn.ru"
+    status: "partially_successful"
+    reason: "Параметры записались, но Server Manager продолжал показывать предупреждение о лицензировании"
+
+rejected_solutions:
+  - action: "New-RDSessionDeployment с $env:COMPUTERNAME"
+    reason_rejected: "Передаёт короткое имя TC вместо полного доменного имени"
+    risk: "Команда завершается ошибкой проверки FQDN"
+
+  - action: "Set-RDSessionCollectionConfiguration с параметром -UserGroups"
+    reason_rejected: "У используемого cmdlet отсутствует параметр UserGroups"
+    risk: "Команда завершается ParameterBindingException"
+
+  - action: "Grant-RDAccess"
+    reason_rejected: "Такой командлет отсутствует в используемой среде"
+    risk: "Команда завершается CommandNotFoundException"
+
+  - action: "Get-ADDomain и Get-ADGroup на сервере TC"
+    reason_rejected: "Модуль ActiveDirectory не установлен на рядовом сервере"
+    risk: "Команды завершаются CommandNotFoundException"
+
+  - action: "lsmgr.exe"
+    reason_rejected: "Файл не найден в Windows Server 2022"
+    risk: "Диспетчер лицензирования не запускается"
+
+dont_repeat:
+  - "Не использовать короткое имя TC в параметрах New-RDSessionDeployment; применять TC.KRNN.RU."
+  - "Не использовать параметр -UserGroups с Set-RDSessionCollectionConfiguration без предварительной проверки Get-Help."
+  - "Не использовать Grant-RDAccess: командлет отсутствует в данной среде."
+  - "Не рассчитывать на Get-ADDomain и Get-ADGroup на рядовом сервере без установленного модуля ActiveDirectory."
+  - "Не использовать lsmgr.exe как способ запуска диспетчера лицензирования в Windows Server 2022."
+  - "Не считать установку роли RDS-Licensing равнозначной установке RDS CAL."
+  - "Не считать активацию сервера лицензий доказательством наличия клиентских лицензий."
+  - "Не предоставлять доступ всем пользователям домена в production без подтверждения требований безопасности."
+  - "Не считать запись LicensingMode и LicensingServer в реестре полной проверкой готовности лицензирования."
+  - "Не переводить сервер в полностью рабочий production-режим без проверки RDS CAL и политики лицензирования."
+
+# ============================================================
+# 12. КОМАНДЫ
+# ============================================================
+
+commands: |
+  # На TC.KRNN.RU: установить RDS Session Host
+  Install-WindowsFeature -Name RDS-RD-Server -IncludeManagementTools
+
+  # На TC.KRNN.RU: проверить установку роли
+  Get-WindowsFeature -Name RDS-RD-Server
+
+  # На TC.KRNN.RU: сформировать FQDN
+  $FQDN = "$env:COMPUTERNAME.$env:USERDNSDOMAIN"
+  Write-Host "FQDN: $FQDN"
+
+  # Создать RDS Deployment
+  New-RDSessionDeployment `
+    -ConnectionBroker "TC.KRNN.RU" `
+    -SessionHost "TC.KRNN.RU"
+
+  # Проверить серверы RDS
+  Get-RDServer
+
+  # Создать коллекцию сеансов
+  New-RDSessionCollection `
+    -CollectionName "Terminal" `
+    -SessionHost "TC.KRNN.RU" `
+    -ConnectionBroker "TC.KRNN.RU"
+
+  # Проверить коллекции
+  Get-RDSessionCollection `
+    -ConnectionBroker "TC.KRNN.RU"
+
+  # На TC.KRNN.RU: добавить доменную группу в локальную группу RDP
+  Add-LocalGroupMember `
+    -Group "Remote Desktop Users" `
+    -Member "KRNN\Пользователи домена"
+
+  # Проверить участников локальной группы RDP
+  Get-LocalGroupMember `
+    -Group "Remote Desktop Users"
+
+  # На AD: установить сервер лицензирования
+  Install-WindowsFeature `
+    -Name RDS-Licensing `
+    -IncludeManagementTools
+
+  # На AD: проверить установку роли лицензирования
+  Get-WindowsFeature -Name RDS-Licensing
+
+  # На TC.KRNN.RU: задать режим Per User
+  Set-ItemProperty `
+    -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\RCM\Licensing Core' `
+    -Name 'LicensingMode' `
+    -Value 4
+
+  # На TC.KRNN.RU: указать сервер лицензирования
+  Set-ItemProperty `
+    -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\RCM\Licensing Core' `
+    -Name 'LicensingServer' `
+    -Value 'AD.krnn.ru'
+
+  # Проверить настройки лицензирования
+  Get-ItemProperty `
+    -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\RCM\Licensing Core' |
+    Select-Object LicensingMode, LicensingServer
+
+  # Проверить локальные RDP-сессии
+  quser
+
+  # Проверить доступность сервера лицензирования
+  Test-NetConnection -ComputerName 'AD.krnn.ru' -Port 135
+
+  # Проверить DNS-имя
+  Resolve-DnsName 'AD.krnn.ru'
+  Resolve-DnsName 'TC.KRNN.RU'
+
+config_snippets:
+  rds_deployment: |
+    ConnectionBroker: TC.KRNN.RU
+    SessionHost: TC.KRNN.RU
+    CollectionName: Terminal
+
+  rds_licensing: |
+    LicensingMode: 4
+    LicensingModeName: Per User
+    LicensingServer: AD.krnn.ru
+
+  access_control: |
+    Local group: Remote Desktop Users
+    Domain: KRNN
+    Domain group: Пользователи домена
+
+# ============================================================
+# 13. РИСКИ И БЕЗОПАСНОСТЬ
+# ============================================================
+
+risks:
+  - risk: "Отсутствие RDS CAL после завершения льготного периода"
+    probability: "high"
+    impact: "high"
+    mitigation: "Приобрести и установить необходимые RDS User CAL или Device CAL"
+
+  - risk: "Доступ всем пользователям домена"
+    probability: "medium"
+    impact: "high"
+    mitigation: "Создать отдельную группу KRNN\\RDS Users и добавить только разрешённых сотрудников"
+
+  - risk: "Размещение дополнительной роли на контроллере домена"
+    probability: "low"
+    impact: "medium"
+    mitigation: "Ограничить доступ к RD Licensing Manager и регулярно проверять состояние роли"
+
+  - risk: "Проверка лицензирования только по параметрам реестра"
+    probability: "medium"
+    impact: "high"
+    mitigation: "Проверять состояние через Server Manager, RD Licensing Diagnoser и журналы событий"
+
+security_requirements:
+  - "Не использовать общие учётные записи."
+  - "Не разрешать RDP-доступ из недоверенных сетей без VPN или защищённого шлюза."
+  - "Ограничить доступ к RDS отдельной доменной группой."
+  - "Включить аудит входов пользователей."
+  - "Ограничить локальные административные права пользователей."
+  - "Обеспечить резервное копирование конфигурации и виртуальной машины."
+
+# ============================================================
+# 14. ОТКАТ
+# ============================================================
+
+rollback_available: true
+
+rollback_plan: |
+  При необходимости удалить коллекцию и роли RDS только после проверки
+  отсутствия активных пользовательских сессий и согласования простоя.
+
+rollback_commands: |
+  # Проверить активные подключения
+  quser
+
+  # Удалить коллекцию сеансов
+  Remove-RDSessionCollection `
+    -CollectionName "Terminal" `
+    -ConnectionBroker "TC.KRNN.RU"
+
+  # Удалить пользователя или группу из локальной группы RDP
+  Remove-LocalGroupMember `
+    -Group "Remote Desktop Users" `
+    -Member "KRNN\Пользователи домена" `
+    -Confirm:$false
+
+  # Удалить роль Session Host после удаления deployment
+  Remove-WindowsFeature -Name RDS-RD-Server
+
+  # При необходимости удалить роль лицензирования с AD
+  Remove-WindowsFeature -Name RDS-Licensing
+
+rollback_conditions:
+  - "Критическая ошибка RDS Deployment."
+  - "Невозможность восстановить доступ администратора."
+  - "Конфликт с действующей инфраструктурой."
+  - "Ошибочная конфигурация лицензирования."
+  - "Необходимость переноса роли на другой сервер."
+
+# ============================================================
+# 15. КРИТЕРИИ УСПЕШНОГО ЗАВЕРШЕНИЯ
+# ============================================================
+
+success_criteria:
+  - "Роль RDS-RD-Server установлена на TC."
+  - "RDS Deployment содержит TC.KRNN.RU как Connection Broker и Session Host."
+  - "Коллекция Terminal создана и имеет состояние Ready."
+  - "Разрешённые пользователи входят в отдельную доменную группу доступа."
+  - "Минимум два тестовых пользователя могут подключиться одновременно."
+  - "Сервер AD доступен с TC по DNS и сети."
+  - "Роль RDS-Licensing установлена на AD."
+  - "Сервер лицензий активирован."
+  - "Приобретены и установлены не менее 10 действительных RDS CAL."
+  - "LicensingMode и сервер лицензирования соответствуют типу приобретённых CAL."
+  - "RD Licensing Diagnoser не показывает критических ошибок."
+  - "Настроено резервное копирование TC и AD."
+  - "Документ обновлён после финальной проверки."
+
+verification_commands: |
+  # Проверка ролей RDS
+  Get-WindowsFeature -Name RDS-RD-Server, RDS-Licensing
+
+  # Проверка deployment
+  Get-RDServer
+
+  # Проверка коллекции
+  Get-RDSessionCollection -ConnectionBroker 'TC.KRNN.RU'
+
+  # Проверка доступа
+  Get-LocalGroupMember -Group 'Remote Desktop Users'
+
+  # Проверка лицензирования на TC
+  Get-ItemProperty `
+    -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\RCM\Licensing Core' |
+    Select-Object LicensingMode, LicensingServer
+
+  # Проверка доступности сервера лицензирования
+  Test-NetConnection -ComputerName 'AD.krnn.ru' -Port 135
+
+  # Проверка активных RDP-сессий
+  quser
+
+# ============================================================
+# 16. ДОКАЗАТЕЛЬСТВА И ИСТОЧНИКИ
+# ============================================================
+
+evidence:
+  - type: "github_markdown"
+    description: "Исходный журнал настройки RDS"
+    reference: "https://github.com/cladkyimaffin-hue/korona/blob/e0ba191e374d4fa3b08adb3c38f8b1252f48002c/Proxmox/%D0%9D%D0%B0%D1%81%D1%82%D1%80%D0%BE%D0%B9%D0%BA%D0%B0%20%D0%A2%D0%A1%20Windows%20Server%202022%20(ID2003).md"
+
+  - type: "github_directory"
+    description: "Связанный каталог Proxmox"
+    reference: "https://github.com/cladkyimaffin-hue/korona/tree/d80f642fe2e44dbfa74c294414c722ee41370b07/Proxmox"
+
+  - type: "command_output"
+    description: "Результат установки RDS-Licensing на AD"
+    reference: "Вывод Get-WindowsFeature -Name RDS-Licensing"
+
+  - type: "manual_test"
+    description: "Успешное тестовое RDP-подключение к TC"
+    reference: "Зафиксировано в исходном документе"
+
+source_reliability: "medium"
+source_limitations:
+  - "Часть сведений представлена как диалоговая история, а не как независимые логи."
+  - "Не указаны точные версии сборок Windows Server и Proxmox."
+  - "Не приложены фактические журналы событий."
+  - "Не подтверждено количество одновременно работающих пользовательских сессий."
+  - "Не подтверждена установка RDS CAL."
+
+# ============================================================
+# 17. ДОПУЩЕНИЯ И НЕОПРЕДЕЛЁННОСТИ
+# ============================================================
+
+assumptions:
+  - "ВМ с VMID 2003 имеет имя TC и FQDN TC.KRNN.RU."
+  - "Сервер AD имеет FQDN AD.krnn.ru."
+  - "Сервер TC является рядовым сервером домена, а не контроллером домена."
+  - "Ожидаемое количество пользователей составляет не менее 10."
+  - "Планируется использовать RDS User CAL."
+  - "Значение LicensingMode=4 соответствует выбранному режиму Per User."
+  - "Тестовое подключение выполнено доменной учётной записью."
+  - "Группа пользователей для доступа называется KRNN\\Пользователи домена."
+  - "Роль лицензирования установлена именно на сервере AD."
+
+unknowns:
+  - "Точная редакция Windows Server 2022."
+  - "Номер сборки Windows Server."
+  - "Версия Proxmox VE."
+  - "IP-адреса TC и AD."
+  - "Тип и состояние лицензии самой Windows Server."
+  - "Фактический статус активации сервера лицензий."
+  - "Дата окончания 120-дневного периода."
+  - "Тип приобретаемых RDS CAL: User или Device."
+  - "Состояние диагностики RDS Licensing после настройки."
+  - "Наличие резервной копии ВМ."
+  - "Наличие отдельной группы безопасности для RDS-пользователей."
+
+# ============================================================
+# 18. ИНСТРУКЦИИ ДЛЯ ИИ
+# ============================================================
+
+ai_instructions:
+  - "Считать настройку RDS частично завершённой, пока RDS CAL не установлены и не проверены."
+  - "Не утверждать, что лицензирование завершено, только на основании установки роли RDS-Licensing."
+  - "Перед предложением команды проверять, существует ли cmdlet в Windows Server 2022."
+  - "Не предлагать команды из устаревших версий Windows Server без предупреждения."
+  - "Различать сервер лицензирования, активацию сервера лицензирования и установку клиентских RDS CAL."
+  - "Не рекомендовать выдавать RDP-доступ всей группе пользователей домена без проверки требований безопасности."
+  - "Все команды сначала предлагать в режиме чтения или проверки, если операция может изменить production-конфигурацию."
+  - "При изменении RDS-конфигурации указывать риск, необходимость резервной копии и возможный простой."
+  - "Если точные данные неизвестны, указывать их в разделе unknowns, а не заполнять догадками."
+
+# ============================================================
+# 19. ИСТОРИЯ ИЗМЕНЕНИЙ МЕТАДАННЫХ
+# ============================================================
+
+change_log:
+  - version: "1.0"
+    date: 2026-09-07
+    author: "cladkyimaffin-hue"
+    changes:
+      - "Созданы расширенные метаданные по журналу настройки RDS."
+      - "Зафиксированы установленные роли, коллекция Terminal и успешное RDP-подключение."
+      - "Отмечено незавершённое лицензирование RDS CAL."
+      - "Зафиксированы ошибочные команды и ограничения исходной диагностики."
+
+# ============================================================
+# 20. ССЫЛКИ
+# ============================================================
+
+urls:
+  - "https://github.com/cladkyimaffin-hue/korona/blob/e0ba191e374d4fa3b08adb3c38f8b1252f48002c/Proxmox/%D0%9D%D0%B0%D1%81%D1%82%D1%80%D0%BE%D0%B9%D0%BA%D0%B0%20%D0%A2%D0%A1%20Windows%20Server%202022%20(ID2003).md"
+  - "https://github.com/cladkyimaffin-hue/korona/tree/d80f642fe2e44dbfa74c294414c722ee41370b07/Proxmox"
+
+last_incident: 2026-09-07
+next_review: 2026-12-01
+valid_until: 2027-01-01
+---
+
 ### USER
 Изучи для понимания вопроса https://github.com/cladkyimaffin-hue/korona/tree/d80f642fe2e44dbfa74c294414c722ee41370b07/Proxmox
 Я создал Virtual Machine 2003 (TC) windows server 2022 он в домене krnn.ru нужно наладить из него терминал сервер
