@@ -1,4 +1,3 @@
-```yaml
 ---
 title: "Настройка сервера паролей Vaultwarden в LXC Debian 12"
 date_created: 2026-09-08
@@ -92,7 +91,6 @@ next_review: 2026-12-01
 reviewer: cladkyimaffin-hue
 approval_status: approved
 ---
-```
 
 ### USER
 изучи для понимания https://github.com/cladkyimaffin-hue/korona/tree/e18954451262bb578748bd7e19625a3eeb094de5/Proxmox
