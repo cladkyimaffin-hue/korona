@@ -64,70 +64,36 @@ AI-INSTRUCTIONS.md.
 
 ## 3. Структура репозитория
 
-Основные области документации:
+Документы организованы по категориям — отдельная папка внутри `Proxmox/`
+на каждую:
 
-| Раздел | Назначение |
+| Папка | Назначение |
 |---|---|
-| `Proxmox/` | Proxmox VE, ВМ, шаблоны, кластер, Ceph |
-| `Proxmox/INDEX.md` | Быстрый индекс документов Proxmox |
-| `Proxmox/Настройка ВМ Windows Server 2022 шаблона.md` | Создание и подготовка шаблона Windows |
-| `Proxmox/Клонирование шаблона ВМ 2001 (Srv1c).md` | Создание ВМ 2001 из шаблона 2000 |
-| `Proxmox/Создание Ceph №1.md` | Создание и настройка Ceph |
-| `Proxmox/pve01+pve02+Qdevice.md` | Кластер Proxmox и QDevice |
-| `Proxmox/Установка Proxmox VE на 3 сервера...md` | Общая установка и архитектура |
-| `Proxmox/web меню.md` | Настройки через веб-интерфейс Proxmox |
-| `AI-README.md` | Карта репозитория и навигация для ИИ |
-| `AI-INSTRUCTIONS.md` | Обязательные правила работы ИИ |
+| `00_Meta/` | Служебные файлы конвейера: `SCHEMA.md` (формат метаданных), `TAGS.md` (реестр тегов), `registry.csv` (реестр документов), `CHANGELOG.md`, `CONFLICTS.md`, `TEMPLATES/` |
+| `00_Inbox/` | Необработанный сырой материал, ожидающий разбора конвейером |
+| `01_Hardware/` | Оборудование серверов, коммутаторы, сетевые карты |
+| `02_Installation/` | Первичная установка Proxmox VE и базовая настройка узлов |
+| `03_Network/` | Сетевая конфигурация: bond, VLAN, веб-интерфейс |
+| `04_Storage_Ceph/` | Хранилище Ceph: пулы, OSD, планирование дисков |
+| `05_VirtualMachines/` | Виртуальные машины, шаблоны, клонирование, Windows Server, Active Directory |
+| `06_Troubleshooting/` | Инциденты и их решения |
+| `07_Vaultwarden/` | Сервер паролей Vaultwarden |
+| `99_Archive/` | Устаревшие документы, помеченные `superseded_by` |
 
-# Структура папки Proxmox - korona/Proxmox
+Корневые файлы `Proxmox/` (не в подпапках): `AI-README.md` (этот файл),
+`AI-INSTRUCTIONS.md` (правила ИИ), `AI-environment_facts-korona-proxmox.md`
+(факты об инфраструктуре), `INDEX.md` (навигация по документам).
 
-## Содержание репозитория
+**Точный список документов не хранится в этом файле.** Раньше здесь был
+построчный перечень всех файлов с прямыми ссылками — он расходился с
+реальностью при каждом переносе или переименовании документа (в частности,
+здесь была ссылка на несуществующий файл и оборванный список категорий).
+Актуальный список:
 
-| Имя файла | Краткое описание |
-|-----------|-----------------|
-| [AI-INSTRUCTIONS.md](https://github.com/cladkyimaffin-hue/korona/blob/main/Proxmox/AI-INSTRUCTIONS.md) | Инструкции для AI по работе с документацией проекта |
-| [AI-README.md](https://github.com/cladkyimaffin-hue/korona/blob/main/Proxmox/AI-README.md) | Обзор структуры и назначения документов для AI систем |
-| [INDEX.md](https://github.com/cladkyimaffin-hue/korona/blob/main/Proxmox/INDEX.md) | Полное оглавление/индекс всех документов |
-| [Proxmox установка Debian 12 LXC создание шаблона развертывание из шаблона.md](https://github.com/cladkyimaffin-hue/korona/blob/main/Proxmox/Proxmox%20%D1%83%D1%81%D1%82%D0%B0%D0%BD%D0%BE%D0%B2%D0%BA%D0%B0%20Debian%2012%20LXC%20%D1%81%D0%BE%D0%B7%D0%B4%D0%B0%D0%BD%D0%B8%D0%B5%20%D1%88%D0%B0%D0%B1%D0%BB%D0%BE%D0%BD%D0%B0%20%D1%80%D0%B0%D0%B7%D0%B2%D0%B5%D1%80%D1%82%D1%8B%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5%20%D0%B8%D0%B7%20%D1%88%D0%B0%D0%B1%D0%BB%D0%BE%D0%BD%D0%B0.md) | Полный цикл: установка Debian 12 в LXC контейнеры, создание и использование шаблонов |
-| [hardware-spec.md](https://github.com/cladkyimaffin-hue/korona/blob/main/Proxmox/hardware-spec.md) | Спецификация и характеристики аппаратного обеспечения сервера |
-| [pve01+pve02+Qdevice.md](https://github.com/cladkyimaffin-hue/korona/blob/main/Proxmox/pve01%2Bpve02%2BQdevice.md) | Настройка кластера из двух узлов (pve01, pve02) с использованием Qdevice для кворума |
-| [web меню.md](https://github.com/cladkyimaffin-hue/korona/blob/main/Proxmox/web%20%D0%BC%D0%B5%D0%BD%D1%8E.md) | Описание веб-интерфейса Proxmox и навигация по меню управления |
-| [Добавить qdevice.md](https://github.com/cladkyimaffin-hue/korona/blob/main/Proxmox/%D0%94%D0%BE%D0%B1%D0%B0%D0%B2%D0%B8%D1%82%D1%8C%20qdevice.md) | Пошаговая инструкция по добавлению qdevice в существующий кластер |
-| [Железа серверов подборка коммутаторов.md](https://github.com/cladkyimaffin-hue/korona/blob/main/Proxmox/%D0%96%D0%B5%D0%BB%D0%B5%D0%B7%D0%B0%20%D1%81%D0%B5%D1%80%D0%B2%D0%B5%D1%80%D0%BE%D0%B2%20%D0%BF%D0%BE%D0%B4%D0%B1%D0%BE%D1%80%D0%BA%D0%B0%20%D0%BA%D0%BE%D0%BC%D0%BC%D1%83%D1%82%D0%B0%D1%82%D0%BE%D1%80%D0%BE%D0%B2.md) | Подборка оборудования: серверы, коммутаторы и сетевые устройства |
-| [Клонирование шаблона ВМ 2001 (win-1c-app-01).md](https://github.com/cladkyimaffin-hue/korona/blob/main/Proxmox/%D0%9A%D0%BB%D0%BE%D0%BD%D0%B8%D1%80%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5%20%D1%88%D0%B0%D0%B1%D0%BB%D0%BE%D0%BD%D0%B0%20%D0%92%D0%9C%202001%20(win-1c-app-01).md) | Процесс клонирования Windows ВМ шаблона для 1С приложений |
-| [Настройка AD DS.md](https://github.com/cladkyimaffin-hue/korona/blob/main/Proxmox/%D0%9D%D0%B0%D1%81%D1%82%D1%80%D0%BE%D0%B9%D0%BA%D0%B0%20AD%20DS.md) | Подробное руководство по установке и настройке Active Directory Domain Services |
-| [Настройка Ceph Планирование Дисков OSD.md](https://github.com/cladkyimaffin-hue/korona/blob/main/Proxmox/%D0%9D%D0%B0%D1%81%D1%82%D1%80%D0%BE%D0%B9%D0%BA%D0%B0%20Ceph%20%D0%9F%D0%BB%D0%B0%D0%BD%D0%B8%D1%80%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5%20%D0%94%D0%B8%D1%81%D0%BA%D0%BE%D0%B2%20OSD.md) | Планирование и конфигурация дисков OSD для Ceph хранилища |
-| [Настройка ВМ Windows Server 2022 шаблона.md](https://github.com/cladkyimaffin-hue/korona/blob/main/Proxmox/%D0%9D%D0%B0%D1%81%D1%82%D1%80%D0%BE%D0%B9%D0%BA%D0%B0%20%D0%92%D0%9C%20Windows%20Server%202022%20%D1%88%D0%B0%D0%B1%D0%BB%D0%BE%D0%BD%D0%B0.md) | Инструкция по подготовке и настройке шаблона Windows Server 2022 |
-| [Настройка сети bond0.md](https://github.com/cladkyimaffin-hue/korona/blob/main/Proxmox/%D0%9D%D0%B0%D1%81%D1%82%D1%80%D0%BE%D0%B9%D0%BA%D0%B0%20%D1%81%D0%B5%D1%82%D0%B8%20bond0.md) | Конфигурация сетевых интерфейсов с использованием bond (агрегирование каналов) |
-| [Повышение сервера AD до контроллера домена #2.md](https://github.com/cladkyimaffin-hue/korona/blob/main/Proxmox/%D0%9F%D0%BE%D0%B2%D1%8B%D1%88%D0%B5%D0%BD%D0%B8%D0%B5%20%D1%81%D0%B5%D1%80%D0%B2%D0%B5%D1%80%D0%B0%20%D0%90D%20%D0%B4%D0%BE%20%D0%BA%D0%BE%D0%BD%D1%82%D1%80%D0%BE%D0%BB%D0%BB%D0%B5%D1%80%D0%B0%20%D0%B4%D0%BE%D0%BC%D0%B5%D0%BD%D0%B0%20%232.md) | Процесс повышения AD серверов до контроллеров домена (этап #2) |
-| [Полная комплектация сервера, идентификация сетевых карт, расположение портов и рекомендации по установке Proxmox без оптики.md](https://github.com/cladkyimaffin-hue/korona/blob/main/Proxmox/%D0%9F%D0%BE%D0%BB%D0%BD%D0%B0%D1%8F%20%D0%BA%D0%BE%D0%BC%D0%BF%D0%BB%D0%B5%D0%BA%D1%82%D0%B0%D1%86%D0%B8%D1%8F%20%D1%81%D0%B5%D1%80%D0%B2%D0%B5%D1%80%D0%B0,%20%D0%B8%D0%B4%D0%B5%D0%BD%D1%82%D0%B8%D1%84%D0%B8%D0%BA%D0%B0%D1%86%D0%B8%D1%8F%20%D1%81%D0%B5%D1%82%D0%B5%D0%B2%D1%8B%D1%85%20%D0%BA%D0%B0%D1%80%D1%82,%20%D1%80%D0%B0%D1%81%D0%BF%D0%BE%D0%BB%D0%BE%D0%B6%D0%B5%D0%BD%D0%B8%D0%B5%20%D0%BF%D0%BE%D1%80%D1%82%D0%BE%D0%B2%20%D0%B8%20%D1%80%D0%B5%D0%BA%D0%BE%D0%BC%D0%B5%D0%BD%D0%B4%D0%B0%D1%86%D0%B8%D0%B8%20%D0%BF%D0%BE%20%D1%83%D1%81%D1%82%D0%B0%D0%BD%D0%BE%D0%B2%D0%BA%D0%B5%20Proxmox%20%D0%B1%D0%B5%D0%B7%20%D0%BE%D0%BF%D1%82%D0%B8%D0%BA%D0%B8.md) | Полный гайд по комплектации сервера, определению сетевых карт и рекомендации для Proxmox |
-| [Поменять имя устройства на pve01.md](https://github.com/cladkyimaffin-hue/korona/blob/main/Proxmox/%D0%9F%D0%BE%D0%BC%D0%B5%D0%BD%D1%8F%D1%82%D1%8C%20%D0%B8%D0%BC%D1%8F%20%D1%83%D1%81%D1%82%D1%80%D0%BE%D0%B9%D1%81%D1%82%D0%B2%D0%B0%20%D0%BD%D0%B0%20pve01.md) | Краткая инструкция по смене имени хоста на pve01 |
-| [Проблемы с доступом по SSH на Debian.md](https://github.com/cladkyimaffin-hue/korona/blob/main/Proxmox/%D0%9F%D1%80%D0%BE%D0%B1%D0%BB%D0%B5%D0%BC%D1%8B%20%D1%81%20%D0%B4%D0%BE%D1%81%D1%82%D1%83%D0%BF%D0%BE%D0%BC%20%D0%BF%D0%BE%20SSH%20%D0%BD%D0%B0%20Debian.md) | Решение типичных проблем и ошибок при подключении по SSH |
-| [Скрипт pstInstal после установки Proxmox.md](https://github.com/cladkyimaffin-hue/korona/blob/main/Proxmox/%D0%A1%D0%BA%D1%80%D0%B8%D0%BF%D1%82%20pstInstal%20%D0%BF%D0%BE%D1%81%D0%BB%D0%B5%20%D1%83%D1%81%D1%82%D0%B0%D0%BD%D0%BE%D0%B2%D0%BA%D0%B8%20Proxmox.md) | Описание автоматизационного скрипта pstInstal для первичной настройки |
-| [Создание Ceph №1.md](https://github.com/cladkyimaffin-hue/korona/blob/main/Proxmox/%D0%A1%D0%BE%D0%B7%D0%B4%D0%B0%D0%BD%D0%B8%D0%B5%20Ceph%20%E2%84%961.md) | Первый этап: инициализация и создание Ceph кластера |
-| [Установка Ceph OSD НА на pve02 pve01.md](https://github.com/cladkyimaffin-hue/korona/blob/main/Proxmox/%D0%A3%D1%81%D1%82%D0%B0%D0%BD%D0%BE%D0%B2%D0%BA%D0%B0%20Ceph%20OSD%20%D0%9D%D0%90%20%D0%BD%D0%B0%20pve02%20pve01.md) | Установка и конфигурация Ceph OSD на узлах pve02 и pve01 |
-| [Установка Proxmox VE на 3 сервера (зеркало 2×480 ГБ + 2×7 ТБ), создание кластера, настройка Ceph, распределение сетей, рекомендации по дискам и сети.md](https://github.com/cladkyimaffin-hue/korona/blob/main/Proxmox/%D0%A3%D1%81%D1%82%D0%B0%D0%BD%D0%BE%D0%B2%D0%BA%D0%B0%20Proxmox%20VE%20%D0%BD%D0%B0%203%20%D1%81%D0%B5%D1%80%D0%B2%D0%B5%D1%80%D0%B0%20(%D0%B7%D0%B5%D1%80%D0%BA%D0%B0%D0%BB%D0%BE%202%C3%97480%20%D0%93%D0%91%20%2B%202%C3%977%20%D0%A2%D0%91),%20%D1%81%D0%BE%D0%B7%D0%B4%D0%B0%D0%BD%D0%B8%D0%B5%20%D0%BA%D0%BB%D0%B0%D1%81%D1%82%D0%B5%D1%80%D0%B0,%20%D0%BD%D0%B0%D1%81%D1%82%D1%80%D0%BE%D0%B9%D0%BA%D0%B0%20Ceph,%20%D1%80%D0%B0%D1%81%D0%BF%D1%80%D0%B5%D0%B4%D0%B5%D0%BB%D0%B5%D0%BD%D0%B8%D0%B5%20%D1%81%D0%B5%D1%82%D0%B5%D0%B9,%20%D1%80%D0%B5%D0%BA%D0%BE%D0%BC%D0%B5%D0%BD%D0%B4%D0%B0%D1%86%D0%B8%D0%B8%20%D0%BF%D0%BE%20%D0%B4%D0%B8%D1%81%D0%BA%D0%B0%D0%BC%20%D0%B8%20%D1%81%D0%B5%D1%82%D0%B8.md) | Комплексное руководство по установке Proxmox на 3-х серверах с кластеризацией и настройкой Ceph |
+- `00_Meta/registry.csv` — машиночитаемый: `document_id`, категория, теги, статус;
+- `Proxmox/INDEX.md` — человекочитаемая навигация, генерируется из `registry.csv`.
 
----
-
-## Логическая структура документации
-
-### 📋 Подготовка и основы
-- **AI-INSTRUCTIONS.md** - правила работы с документацией
-- **INDEX.md** - навигация и оглавление
-- **hardware-spec.md** - выбор оборудования
-
-### 🔧 Первичная установка
-- **Полная комплектация сервера...** - комплектация и настройка железа
-- **Поменять имя устройства на pve01.md** - начальная конфигурация хоста
-- **Скрипт pstInstal после установки Proxmox.md** - автоматизация первичной настройки
-
-### 🖥️ Сетевая конфигурация
-- **Наст**
-
-Имена файлов могут содержать пробелы, кириллицу и специальные символы.
-ИИ не должен самостоятельно переименовывать такие файлы без отдельного
-запроса пользователя.
+Протокол обработки и переноса документов — `AI-INSTRUCTIONS.md`, раздел 8а.
 
 ---
 
