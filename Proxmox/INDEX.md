@@ -326,46 +326,6 @@ reviewer: "cladkyimaffin-hue"
 approval_status: "approved"
 ---
 
-## 🗺️ Архитектурная схема кластера "krnn"
-
-```mermaid
-graph TD
-    subgraph Кластер_Proxmox_krnn ["Кластер Proxmox VE 'krnn'"]
-        pve01["🖥️ pve01<br/>IP: 192.168.202.121<br/>Huawei 2288H V5<br/>OSD: NVMe + sdb (7TB)"]
-        pve02["🖥️ pve02<br/>IP: 192.168.202.179<br/>Huawei 2288H V5<br/>OSD: NVMe + sdb (7TB)"]
-    end
-
-    subgraph Кворум ["Кворум (Quorum)"]
-        qdevice["⚖️ QDevice<br/>IP: 192.168.202.251<br/>Debian 13<br/>⚠️ ТОЛЬКО кворум, НЕ Ceph"]
-    end
-
-    subgraph Сети ["Сетевая инфраструктура"]
-        mgmt["🌐 vmbr0 (Управление)<br/>192.168.200.0/22<br/>nic2"]
-        ceph_net["🔗 bond0 (Ceph/VM)<br/>10.10.10.0/24<br/>active-backup (nic4 + nic5)"]
-    end
-
-    subgraph Хранилище ["Ceph Squid 19.2 Storage"]
-        ceph_fast["⚡ ceph-fast (NVMe)<br/>Для: 1С, AD, БД"]
-        ceph_bulk["💾 ceph-bulk (SSD 7TB)<br/>Для: Бэкапы, архивы"]
-    end
-
-    %% Связи
-    pve01 <-->|Corosync + Ceph Replication| pve02
-    pve01 <-.->|Кворум (TCP)| qdevice
-    pve02 <-.->|Кворум (TCP)| qdevice
-    
-    pve01 --- mgmt
-    pve02 --- mgmt
-    
-    pve01 === ceph_net
-    pve02 === ceph_net
-    
-    ceph_net -.->|CRUSH Rule: NVMe| ceph_fast
-    ceph_net -.->|CRUSH Rule: SSD| ceph_bulk
-
-    %% Стилизация
-    classDef warning fill:#f9d0c4,stroke:#d9534f,stroke-width:2px;
-    class qdevice warning;
 
 # Индекс папки: Proxmox
 
