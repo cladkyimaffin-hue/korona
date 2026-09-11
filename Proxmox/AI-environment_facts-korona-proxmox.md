@@ -47,7 +47,7 @@ environment_facts:
       "192.168.202.121": "pve01"
       "192.168.202.179": "pve02"
       "192.168.202.251": "Qdevice.krnn.ru"
-      "192.168.203.93": "zabbix-01 (LXC CT 201)"
+      "192.168.203.93": "zabbix (LXC CT 201)"
 
   storage:
     pools:
@@ -86,7 +86,7 @@ environment_facts:
         specs: "q35, BIOS=OVMF(UEFI), CPU=host, SCSI=VirtIO SCSI Single, Network=VirtIO, TPM v2.0 (swtpm), диск 100 ГБ, прошёл Sysprep /generalize перед конвертацией в шаблон."
     known_working_instances:
       - id: 2001
-        name: "win-1c-app-01"
+        name: "Srv1c"
         role: "сервер приложений 1С:ERP"
         source_template: 2000
         clone_type: "Full Clone"
@@ -103,7 +103,7 @@ environment_facts:
         role: "мониторинг (Zabbix)"
         source_template: 1000
       - id: 201
-        name: "zabbix-01"
+        name: "zabbix"
         type: "LXC"
         note: "промежуточный/более ранний контейнер до итоговой ревизии нумерации — при работе с текущей инфраструктурой ориентироваться на актуальный CT 700, а не на 201, если не указано иное."
     convention_summary: "Шаблоны — круглые номера (1000 для LXC, 2000 для Windows-ВМ). Рабочие Windows-машины — в диапазоне 2001–2003+. Рабочие LXC — произвольные ID (700 и т.д.), процесс формирования ID исторически проходил через несколько промежуточных номеров (100→2000, 200→500→501→1000) — не считать промежуточные ID финальными без проверки текущего `pct list` / `qm list`."
