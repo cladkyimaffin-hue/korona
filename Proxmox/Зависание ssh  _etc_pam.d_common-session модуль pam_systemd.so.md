@@ -1,3 +1,605 @@
+---
+# ============================================================
+# 1. БАЗОВАЯ ИНФОРМАЦИЯ
+# ============================================================
+
+document_id: "LINUX-SSH-PAM-SYSTEMD-ZABBIX-2026-001"
+title: "Устранение задержки SSH-входа в LXC из-за pam_systemd.so"
+slug: "ustranenie-zaderzhki-ssh-vhoda-lxc-pam-systemd"
+document_type: "troubleshooting"
+language: "ru"
+version: "1.0"
+schema_version: "1.0"
+status: "completed"
+confidentiality: "internal"
+priority: "medium"
+
+date_created: 2026-09-11
+date_modified: 2026-09-11
+date_completed: 2026-09-11
+last_reviewed: ""
+next_review: 2026-12-11
+valid_until: 2027-09-11
+
+author: "cladkyimaffin-hue"
+maintainer: "cladkyimaffin-hue"
+reviewer: ""
+owner_team: ""
+approval_status: "draft"
+
+# ============================================================
+# 2. КЛАССИФИКАЦИЯ
+# ============================================================
+
+category: "troubleshooting"
+domain: "linux"
+subdomain: "ssh-pam-lxc"
+
+tags:
+  - "SSH"
+  - "OpenSSH"
+  - "PAM"
+  - "pam_systemd"
+  - "systemd-logind"
+  - "LXC"
+  - "Proxmox"
+  - "Debian"
+  - "zabbix"
+  - "common-session"
+  - "NAMESPACE"
+  - "SSH timeout"
+
+keywords:
+  - "зависание SSH"
+  - "задержка входа SSH"
+  - "pam_systemd.so"
+  - "systemd-logind"
+  - "status=226/NAMESPACE"
+  - "LXC container"
+  - "Permission denied"
+  - "/etc/pam.d/common-session"
+
+aliases:
+  - "Зависание SSH в LXC"
+  - "SSH ждёт минуту перед приглашением"
+  - "pam_systemd.so в common-session"
+  - "systemd-logind в LXC"
+  - "SSH delay on zabbix container"
+
+related_topics:
+  - "Proxmox LXC"
+  - "systemd namespaces"
+  - "PAM session modules"
+  - "SSH interactive session"
+  - "Debian login management"
+
+# ============================================================
+# 3. СИСТЕМА И ОКРУЖЕНИЕ
+# ============================================================
+
+target_system: "LXC-контейнер zabbix на инфраструктуре Proxmox"
+environment: "production"
+system_role: "Zabbix-сервер или контейнер мониторинга"
+system_name: "zabbix"
+hostname: "zabbix"
+fqdn: ""
+container_type: "LXC"
+container_id: ""
+node: ""
+cluster: ""
+
+operating_system:
+  name: "Debian GNU/Linux"
+  version: ""
+  edition: ""
+  architecture: ""
+  build: ""
+  language: ""
+  timezone: "UTC"
+
+platform:
+  name: "Proxmox VE"
+  version: ""
+  hypervisor: "LXC"
+  container_type: "Linux container"
+  init_system: "systemd"
+  firmware: ""
+
+network:
+  ip_addresses:
+    - "192.168.200.223"
+  mac_addresses: []
+  bridge: ""
+  vlan: ""
+  subnet: ""
+  gateway: ""
+  dns_servers: []
+
+# ============================================================
+# 4. ОПИСАНИЕ ПРОБЛЕМЫ
+# ============================================================
+
+problem: "При интерактивном SSH-подключении к LXC-контейнеру zabbix после успешной аутентификации наблюдалась задержка около одной минуты до появления командной строки."
+
+summary: |
+  SSH-аутентификация проходила успешно, однако интерактивная сессия
+  запускалась с задержкой примерно 60 секунд. Неинтерактивные SSH-команды,
+  например выполнение echo и date через удалённую команду, выполнялись
+  практически мгновенно. Это позволило исключить основную часть проблем
+  сетевого подключения, обратного DNS-резолвинга и самого процесса
+  аутентификации.
+
+ai_summary: |
+  В LXC-контейнере zabbix интерактивный SSH-вход зависал примерно на минуту
+  после успешной аутентификации. Причиной было наличие pam_systemd.so в
+  /etc/pam.d/common-session при неработающем systemd-logind: сервис завершался
+  с ошибкой 226/NAMESPACE из-за ограничения mount namespace внутри LXC.
+  После отключения необязательного pam_systemd.so задержка исчезла.
+
+business_impact: |
+  Администраторы испытывали задержку при каждом интерактивном входе
+  в контейнер по SSH.
+
+technical_impact: |
+  Интерактивные SSH-сессии создавались с задержкой из-за ожидания ответа
+  от systemd-logind. Неинтерактивное выполнение удалённых команд
+  оставалось работоспособным.
+
+user_impact: |
+  Административный SSH-вход занимал около минуты вместо мгновенного
+  появления командной строки.
+
+severity: "medium"
+incident_status: "resolved"
+
+# ============================================================
+# 5. СИМПТОМЫ И НАБЛЮДЕНИЯ
+# ============================================================
+
+symptoms:
+  - "SSH-аутентификация по паролю выполнялась без заметной задержки."
+  - "После Authentication succeeded интерактивная сессия ожидала около минуты."
+  - "Командная строка появлялась только после тайм-аута."
+  - "Неинтерактивная команда ssh host \"echo NON_INTERACTIVE_TEST && date\" выполнялась быстро."
+  - "Задержка наблюдалась именно при интерактивном входе."
+  - "Проблема проявлялась в LXC-контейнере."
+
+expected_behavior:
+  - "После успешной аутентификации SSH-командная строка появляется сразу."
+  - "Интерактивный и неинтерактивный SSH-вход не имеют задержки около минуты."
+  - "PAM-сессия не должна ожидать недоступный сервис systemd-logind."
+
+actual_behavior:
+  - "Интерактивный SSH-вход задерживался примерно на 60 секунд."
+  - "Неинтерактивное выполнение удалённых команд работало быстро."
+  - "systemd-logind находился в состоянии failed."
+  - "В journal присутствовала ошибка Permission denied при создании mount namespace."
+
+observed_metrics:
+  ssh_interactive_delay:
+    value: "около 60"
+    unit: "секунд"
+    source: "наблюдение при SSH-входе"
+
+  ssh_noninteractive_delay:
+    value: "мгновенно или без заметной задержки"
+    unit: ""
+    source: "ssh root@192.168.200.223 \"echo NON_INTERACTIVE_TEST && date\""
+
+# ============================================================
+# 6. КОРНЕВАЯ ПРИЧИНА И РЕШЕНИЕ
+# ============================================================
+
+problem_statement: |
+  В LXC-контейнере zabbix интерактивная SSH-сессия создавалась
+  с задержкой около одной минуты. Аутентификация проходила успешно,
+  но PAM включал модуль pam_systemd.so через файл common-session.
+  Модуль пытался взаимодействовать с systemd-logind, который не мог
+  запуститься в контейнере из-за ошибки создания mount namespace.
+
+root_cause: |
+  systemd-logind.service не запускался внутри LXC-контейнера:
+  systemd завершал процесс с кодом 226/NAMESPACE после ошибки
+  "Failed to set up mount namespacing: /run/systemd/unit-root/proc:
+  Permission denied". В /etc/pam.d/common-session присутствовал
+  необязательный модуль session optional pam_systemd.so, который
+  ожидал недоступный systemd-logind и вызывал задержку интерактивного
+  входа.
+
+solution: |
+  В файле /etc/pam.d/common-session строка
+  "session optional pam_systemd.so" была отключена вручную
+  путём добавления символа комментария "#". После этого новые
+  SSH-подключения к контейнеру стали открываться без минутной задержки.
+
+contributing_factors:
+  - "Система работает внутри LXC-контейнера."
+  - "systemd-logind не может создать требуемый mount namespace."
+  - "pam_systemd.so остался включённым в общей PAM-конфигурации."
+  - "Ошибка logind не блокировала аутентификацию, но задерживала создание интерактивной сессии."
+
+resolution_confidence: "confirmed"
+evidence_level: "verified"
+
+# ============================================================
+# 7. ДИАГНОСТИКА
+# ============================================================
+
+diagnostic_steps:
+  - step: 1
+    action: "Проверить параметры SSH-сервера"
+    command: "grep -E \"^(UseDNS|GSSAPIAuthentication|GSSAPICleanupCredentials|UsePAM)\" /etc/ssh/sshd_config"
+    expected_result: "Отсутствует причина задержки в UseDNS или GSSAPI."
+    actual_result: "На проблемном узле был установлен UseDNS no; UsePAM yes."
+    conclusion: "Обратный DNS-резолвинг не является основной причиной."
+    status: "completed"
+    evidence: "Вывод grep из исходного документа"
+
+  - step: 2
+    action: "Проверить SSH в verbose-режиме"
+    command: "ssh -v root@192.168.200.223"
+    expected_result: "Определён этап, на котором появляется задержка."
+    actual_result: "Аутентификация проходила быстро; задержка наблюдалась после Entering interactive session."
+    conclusion: "Проблема связана с серверной инициализацией интерактивной сессии."
+    status: "completed"
+    evidence: "Вывод ssh -v из исходного документа"
+
+  - step: 3
+    action: "Проверить выполнение неинтерактивной команды"
+    command: "ssh -o StrictHostKeyChecking=no root@192.168.200.223 \"echo NON_INTERACTIVE_TEST && date\""
+    expected_result: "Удалённая команда выполняется без задержки."
+    actual_result: "Команда выполнилась быстро."
+    conclusion: "Сетевое соединение и базовая SSH-аутентификация работают."
+    status: "completed"
+    evidence: "Вывод из исходного документа"
+
+  - step: 4
+    action: "Проверить MOTD и shell-профили"
+    command: "ls -la /etc/update-motd.d/; tail -30 /root/.bashrc; cat /root/.profile"
+    expected_result: "Найден скрипт или команда, вызывающая тайм-аут."
+    actual_result: "MOTD содержит только uname; .bashrc и .profile стандартные."
+    conclusion: "MOTD и shell-профили не являются причиной задержки."
+    status: "completed"
+    evidence: "Вывод из исходного документа"
+
+  - step: 5
+    action: "Проверить systemd-logind"
+    command: "systemctl status systemd-logind --no-pager -l"
+    expected_result: "systemd-logind работает."
+    actual_result: "Сервис failed, status=226/NAMESPACE."
+    conclusion: "Найдена неисправность systemd-logind в LXC."
+    status: "completed"
+    evidence: "Вывод systemctl из исходного документа"
+
+  - step: 6
+    action: "Проверить журнал systemd-logind"
+    command: "journalctl -u systemd-logind --no-pager -n 20"
+    expected_result: "Ошибки отсутствуют."
+    actual_result: "Permission denied при создании /run/systemd/unit-root/proc."
+    conclusion: "systemd-logind не может запуститься из-за ограничений namespace."
+    status: "completed"
+    evidence: "Вывод journalctl из исходного документа"
+
+  - step: 7
+    action: "Проверить PAM-конфигурацию"
+    command: "cat /etc/pam.d/common-session"
+    expected_result: "Проверена цепочка session-модулей."
+    actual_result: "Обнаружена строка session optional pam_systemd.so."
+    conclusion: "PAM вызывает модуль, зависящий от неисправного logind."
+    status: "completed"
+    evidence: "Вывод common-session из исходного документа"
+
+  - step: 8
+    action: "Отключить pam_systemd.so"
+    command: "sed -i 's/^\\([[:space:]]*session[[:space:]]\\+optional[[:space:]]\\+pam_systemd\\.so\\)/# \\1/' /etc/pam.d/common-session"
+    expected_result: "Строка pam_systemd.so становится комментарием."
+    actual_result: "В исходном документе строка была закомментирована вручную."
+    conclusion: "Проблема устранена."
+    status: "completed"
+    evidence: "Подтверждение пользователя в исходном документе"
+
+# ============================================================
+# 8. ПРОВЕРЕННЫЕ И ОТВЕРГНУТЫЕ ГИПОТЕЗЫ
+# ============================================================
+
+hypotheses:
+  - id: "H1"
+    description: "Задержка вызвана обратным DNS-резолвингом SSH-клиента."
+    status: "rejected"
+    verification_method: "Проверка UseDNS в sshd_config."
+    evidence_for: []
+    evidence_against:
+      - "На проблемном узле присутствует UseDNS no."
+      - "Неинтерактивные SSH-команды выполняются быстро."
+    conclusion: "Гипотеза отклонена."
+
+  - id: "H2"
+    description: "Задержку вызывает GSSAPI/Kerberos-аутентификация."
+    status: "rejected"
+    verification_method: "Проверка параметров sshd_config и этапа прохождения ssh -v."
+    evidence_for: []
+    evidence_against:
+      - "Аутентификация по паролю проходит быстро."
+      - "Пауза возникает после успешной аутентификации."
+    conclusion: "Гипотеза не подтверждена."
+
+  - id: "H3"
+    description: "Задержку вызывает скрипт MOTD или shell-профиль."
+    status: "rejected"
+    verification_method: "Проверка /etc/update-motd.d, /root/.bashrc и /root/.profile."
+    evidence_for: []
+    evidence_against:
+      - "MOTD содержит только uname."
+      - ".bashrc и .profile не содержат долгих команд."
+    conclusion: "Гипотеза отклонена."
+
+  - id: "H4"
+    description: "Задержку вызывает pam_systemd.so, ожидающий systemd-logind."
+    status: "confirmed"
+    verification_method: "Сопоставление common-session, статуса logind и ошибки 226/NAMESPACE."
+    evidence_for:
+      - "systemd-logind.service находится в состоянии failed."
+      - "В журнале указана ошибка Permission denied при создании namespace."
+      - "В common-session включён pam_systemd.so."
+      - "После отключения pam_systemd.so задержка исчезла."
+    evidence_against: []
+    conclusion: "Подтверждённая причина."
+
+# ============================================================
+# 9. КОМАНДЫ
+# ============================================================
+
+commands: |
+  # Проверить параметры SSH-сервера
+  grep -E "^(UseDNS|GSSAPIAuthentication|GSSAPICleanupCredentials|UsePAM)" /etc/ssh/sshd_config
+
+  # Проверить интерактивный SSH-вход с клиента
+  ssh -v root@192.168.200.223
+
+  # Проверить выполнение неинтерактивной команды
+  ssh -o StrictHostKeyChecking=no root@192.168.200.223 "echo NON_INTERACTIVE_TEST && date"
+
+  # Проверить статус systemd-logind
+  systemctl status systemd-logind --no-pager -l
+
+  # Проверить ошибки systemd-logind
+  journalctl -u systemd-logind --no-pager -n 20
+
+  # Просмотреть PAM-конфигурацию
+  cat /etc/pam.d/common-session
+  cat /etc/pam.d/common-session-noninteractive
+
+  # Идемпотентно закомментировать pam_systemd.so
+  sed -i 's/^\([[:space:]]*session[[:space:]]\+optional[[:space:]]\+pam_systemd\.so\)/# \1/' /etc/pam.d/common-session
+
+  # Проверить состояние строки
+  grep -n "pam_systemd" /etc/pam.d/common-session
+
+command_safety:
+  requires_root: true
+  requires_administrator: true
+  requires_reboot: false
+  causes_downtime: false
+  modifies_configuration: true
+  modifies_data: false
+  reversible: true
+  affects_existing_sessions: false
+  affects_new_sessions: true
+
+# ============================================================
+# 10. ИЗМЕНЕНИЕ КОНФИГУРАЦИИ
+# ============================================================
+
+configuration_changes:
+  - parameter: "session optional pam_systemd.so"
+    file: "/etc/pam.d/common-session"
+    old_value: "session optional pam_systemd.so"
+    new_value: "# session optional pam_systemd.so"
+    reason: "Отключение ожидания неработающего systemd-logind в LXC."
+    reversible: true
+    applied: true
+
+config_snippets:
+  before: |
+    session required pam_unix.so
+    session optional pam_systemd.so
+
+  after: |
+    session required pam_unix.so
+    # session optional pam_systemd.so
+
+  systemd_logind_error: |
+    systemd-logind.service: Main process exited, code=exited,
+    status=226/NAMESPACE
+
+    Failed to set up mount namespacing:
+    /run/systemd/unit-root/proc: Permission denied
+
+# ============================================================
+# 11. ОТКАТ
+# ============================================================
+
+rollback_available: true
+
+rollback_commands: |
+  sed -i 's/^#[[:space:]]*\(session[[:space:]]\+optional[[:space:]]\+pam_systemd\.so\)/\1/' /etc/pam.d/common-session
+
+rollback_conditions:
+  - "Если в контейнере будет исправлена работа systemd-logind."
+  - "Если контейнер будет переведён в конфигурацию, поддерживающую корректную работу pam_systemd.so."
+  - "Если потребуется восстановить стандартную PAM-конфигурацию Debian."
+
+rollback_warning: |
+  Не выполняйте откат без проверки состояния systemd-logind.
+  Если systemd-logind по-прежнему завершается с ошибкой 226/NAMESPACE,
+  задержка SSH может вернуться.
+
+# ============================================================
+# 12. ПРОВЕРКА РЕЗУЛЬТАТА
+# ============================================================
+
+success_criteria:
+  - "В /etc/pam.d/common-session строка pam_systemd.so закомментирована."
+  - "Новая интерактивная SSH-сессия открывается без задержки около минуты."
+  - "Командная строка появляется сразу после успешной аутентификации."
+  - "Неинтерактивные SSH-команды продолжают выполняться успешно."
+  - "Конфигурация common-session остаётся синтаксически корректной."
+  - "Другие PAM-модули и базовая SSH-аутентификация продолжают работать."
+
+verification_commands: |
+  # Проверить, что модуль отключён
+  grep -n "pam_systemd" /etc/pam.d/common-session
+
+  # Проверить новый интерактивный вход
+  time ssh root@192.168.200.223
+
+  # Проверить неинтерактивную команду
+  time ssh root@192.168.200.223 "echo OK && date"
+
+  # Проверить активные SSH-сессии
+  who
+  loginctl list-sessions 2>/dev/null || true
+
+verification_result: |
+  После ручного комментирования строки pam_systemd.so
+  задержка при SSH-входе исчезла. Командная строка стала
+  появляться без ожидания около минуты.
+
+# ============================================================
+# 13. ОГРАНИЧЕНИЯ И РИСКИ
+# ============================================================
+
+risks:
+  - risk: "Отключение pam_systemd.so уменьшает интеграцию PAM с systemd-logind."
+    level: "low"
+    mitigation: "Модуль является optional; перед откатом проверить работоспособность logind."
+
+  - risk: "Ручное редактирование PAM-файлов может быть перезаписано обновлением или pam-auth-update."
+    level: "medium"
+    mitigation: "Зафиксировать изменение в конфигурации и проверять файл после обновлений."
+
+  - risk: "Изменение PAM-конфигурации может повлиять на другие способы входа."
+    level: "medium"
+    mitigation: "Сохранить резервную копию файла и проверять SSH в отдельной новой сессии."
+
+  - risk: "systemd-logind остаётся неисправным после отключения pam_systemd.so."
+    level: "medium"
+    mitigation: "Рассмотреть отдельное исправление конфигурации LXC и systemd."
+
+limitations:
+  - "В документе не указана точная версия Debian."
+  - "В документе не указана точная версия Proxmox VE."
+  - "Не указан CTID контейнера."
+  - "Не приведён полный вывод ssh -v."
+  - "Не подтверждено, исправлена ли причина systemd-logind или только устранён её эффект."
+  - "Не проверено влияние изменения на другие PAM-зависимые сервисы."
+  - "Не выполнена отдельная проверка после перезагрузки контейнера."
+
+# ============================================================
+# 14. РЕКОМЕНДАЦИИ
+# ============================================================
+
+recommendations:
+  - "Сохранить резервную копию /etc/pam.d/common-session перед изменениями."
+  - "Проверить конфигурацию контейнера на хосте Proxmox."
+  - "Определить, действительно ли контейнеру требуется systemd-logind."
+  - "Проверить состояние systemd-logind после обновления Debian или systemd."
+  - "Проверить, не возвращает ли pam-auth-update строку pam_systemd.so."
+  - "Зафиксировать изменение в системе управления конфигурациями."
+  - "Применять аналогичное изменение к другим контейнерам только после проверки одинаковых симптомов."
+  - "Не отключать pam_systemd.so на полноценных виртуальных машинах или физических серверах без подтверждённой причины."
+
+dont_repeat:
+  - "Не начинать диагностику с отключения pam_systemd.so без проверки systemd-logind и journalctl."
+  - "Не считать UseDNS причиной проблемы, если UseDNS no уже установлен и задержка возникает после аутентификации."
+  - "Не изменять /etc/pam.d/sshd, если источник pam_systemd.so находится в подключаемом файле common-session."
+  - "Не использовать шаблон sed с необязательным текстом, которого фактически нет в файле."
+  - "Не выполнять массовое отключение pam_systemd.so на всех серверах без подтверждения, что они работают в LXC и имеют такую же ошибку 226/NAMESPACE."
+  - "Не удалять или заменять PAM-модули без сохранения резервной копии конфигурации."
+  - "Не считать исправлением только перезапуск SSH, если systemd-logind продолжает завершаться с ошибкой."
+
+# ============================================================
+# 15. ИСТОЧНИКИ И ДОКАЗАТЕЛЬСТВА
+# ============================================================
+
+urls:
+  - "https://github.com/cladkyimaffin-hue/korona/blob/0bc07d11e3d7f9b74e6feae917ab79ef5161af43/Proxmox/%D0%97%D0%B0%D0%B2%D0%B8%D1%81%D0%B0%D0%BD%D0%B8%D0%B5%20ssh%20%20_etc_pam.d_common-session%20%D0%BC%D0%BE%D0%B4%D1%83%D0%BB%D1%8C%20pam_systemd.so.md"
+
+evidence:
+  - type: "configuration"
+    description: "В common-session найден pam_systemd.so."
+    source: "/etc/pam.d/common-session"
+
+  - type: "service_status"
+    description: "systemd-logind завершался с кодом 226/NAMESPACE."
+    source: "systemctl status systemd-logind"
+
+  - type: "journal"
+    description: "Зафиксирована ошибка Permission denied при создании mount namespace."
+    source: "journalctl -u systemd-logind"
+
+  - type: "functional_test"
+    description: "После отключения pam_systemd.so SSH-вход стал выполняться без минутной задержки."
+    source: "Ручная проверка пользователя"
+
+source_commit: "0bc07d11e3d7f9b74e6feae917ab79ef5161af43"
+source_repository: "https://github.com/cladkyimaffin-hue/korona"
+
+# ============================================================
+# 16. АУДИТ И ДОСТОВЕРНОСТЬ
+# ============================================================
+
+data_quality:
+  completeness: "high"
+  technical_accuracy: "high"
+  reproducibility: "medium"
+  source_type: "операционная запись с командными выводами"
+  facts_verified_by_execution: true
+  assumptions_present: true
+
+assumptions:
+  - "IP 192.168.200.223 принадлежит контейнеру zabbix."
+  - "Контейнер работает на инфраструктуре Proxmox VE."
+  - "После ручного комментирования pam_systemd.so задержка действительно исчезла."
+  - "Другие критичные PAM-модули не изменялись."
+  - "Изменение применялось только к контейнеру zabbix."
+
+open_questions:
+  - "Какая точная версия Debian работает в контейнере?"
+  - "Какой CTID у контейнера zabbix?"
+  - "Какая точная версия Proxmox VE используется на узле?"
+  - "Нужно ли восстановить полноценную работу systemd-logind вместо отключения pam_systemd.so?"
+  - "Переживает ли изменение перезагрузку контейнера и запуск pam-auth-update?"
+  - "Есть ли другие LXC-контейнеры с аналогичной задержкой SSH?"
+
+# ============================================================
+# 17. ВРЕМЕННОЙ КОНТЕКСТ
+# ============================================================
+
+last_incident: 2026-09-11
+next_review: 2026-12-11
+valid_until: 2027-09-11
+
+# ============================================================
+# 18. ОТВЕТСТВЕННОСТЬ
+# ============================================================
+
+reviewer: ""
+approval_status: "draft"
+---
+
+Важные замечания
+Статус completed означает, что задержка SSH устранена, но первопричина отказа systemd-logind в контейнере не исправлена.
+pam_systemd.so отключён только в конкретном LXC-контейнере, поэтому это изменение нельзя автоматически распространять на виртуальные машины и физические серверы.
+Команду для автоматического комментирования лучше использовать в более точной форме:
+bash
+
+
+sed -i 's/^\([[:space:]]*session[[:space:]]\+optional[[:space:]]\+pam_systemd\.so\)/# \1/' /etc/pam.d/common-session
+Она изменяет только строку, которая начинается с session optional pam_systemd.so, и не добавляет повторные символы комментария при повторном запуске.
+
+Итог: документ фиксирует подтверждённую связь между задержкой интерактивного SSH-входа, неисправным systemd-logind в LXC и включённым pam_systemd.so в common-session. Рабочее решение применено, но при следующем пересмотре желательно отдельно проверить возможность корректного запуска systemd-logind, чтобы не ограничиваться отключением PAM-модуля.
+
 ### USER
 изучи https://github.com/cladkyimaffin-hue/korona/tree/6049deb3066ad8cbb7c3c897717154ec0012b726/Proxmox
 просмотри все данные на момент зависание входа по ssh висит около минуты прежде чем выдаст строку приветствия. На pve01 мы уже делали и там работает - строка состояния, командная строка выдается мгновенно без ожидания. Может посмотреть на ней что сделано и настроить другие входы?
