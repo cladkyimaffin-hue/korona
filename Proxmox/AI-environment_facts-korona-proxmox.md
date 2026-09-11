@@ -94,12 +94,12 @@ environment_facts:
         specs: "q35, BIOS=OVMF(UEFI), CPU=host, SCSI=VirtIO SCSI Single, Network=VirtIO, TPM v2.0 (swtpm), диск ~100 ГБ, прошёл Sysprep /generalize перед конвертацией в шаблон."
     known_working_instances:
       - id: 2001
-        name: "win-1c-app-01"
+        name: "Srv1c"
         role: "сервер приложений 1С:ERP"
         source_template: 2000
         clone_type: "Full Clone (--full)"
         storage: "ceph-fast"
-        resources: "24 vCPU (1 socket × 24 cores), 163840 MiB (160 GiB) RAM, диск увеличен со 100 ГБ до 1 ТБ через `qm resize 2001 scsi0 +924G`"
+        resources: "20 vCPU (1 socket × 20 cores), 163840 MiB (160 GiB) RAM, диск увеличен со 100 ГБ до 1 ТБ через `qm resize 2001 scsi0 +924G`"
       - id: 2003
         name: "TC" (FQDN: TC.KRNN.RU)
         role: "терминальный сервер RDS (Remote Desktop Services)"
@@ -108,7 +108,7 @@ environment_facts:
         resources: "4 vCPU, 48.15 GiB RAM, 500 GiB диск"
         rds_status: "RDS Session Host и Connection Broker настроены. Коллекция 'Terminal'. Роль RDS Licensing установлена на AD.krnn.ru, но RDS CAL НЕ приобретены. Сервер работает в 120-дневном льготном периоде (grace period)."
       - id: 700 (или 201 в ранних логах)
-        name: "zabbix-lxc"
+        name: "zabbix"
         type: "LXC"
         role: "мониторинг (Zabbix)"
         source_template: 1000
