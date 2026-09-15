@@ -23,7 +23,7 @@ dont_repeat:
   - "Не создавать BalloonService с обобщённым путём вроде D:\\balloon\\blnsvr.exe — путь версиозависим (например, D:\\Balloon\\2k25\\amd64\\ для Windows Server 2025 x64), сначала найти файл через Get-ChildItem."
   - "Не использовать команду `qm guest info` на версиях Proxmox, где она отсутствует (использовать `qm guest cmd ... get-osinfo`)."
 related_files:
-  - "TBD: Клонирование шаблона ВМ 2001 (win-1c-app-01).md — тот же тип конфигурации Windows Server, ещё не мигрирован"
+  - "PROXMOX-VM-CLONE-2001-2026-001"
 schema_version: "1.0"
 ---
 
