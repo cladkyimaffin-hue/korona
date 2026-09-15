@@ -21,9 +21,9 @@ dont_repeat:
   - "Не размещать полноценный Ceph Monitor на хосте QDevice — QDevice даёт кворум только для Corosync (кластер Proxmox), а не для Ceph."
   - "Не создавать local-lvm/local хранилище на дисках, отведённых под OSD, через инсталлятор — Ceph OSD создаются на чистых, неразмеченных дисках."
 related_files:
-  - "TBD: Создание Ceph №1.md"
-  - "TBD: Настройка Ceph Планирование Дисков OSD.md"
-  - "TBD: Установка Ceph OSD на pve02 pve01.md"
+  - "PROXMOX-CEPH-CONCEPTS-2NODE-2026-001"
+  - "PROXMOX-CEPH-OSD-DISK-PREP-2026-001"
+  - "PROXMOX-CEPH-OSD-POOLS-DEPLOYMENT-2026-001"
 schema_version: "1.0"
 ---
 
