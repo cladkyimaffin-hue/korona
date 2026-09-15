@@ -32,6 +32,7 @@ dont_repeat:
   - "Не путать 163840 MiB с 163840 MB — это ~160 ГиБ, не ~164 ГБ."
 related_files:
   - "PROXMOX-WINSRV2022-TEMPLATE-2026-001"
+  - "PROXMOX-VM2001-USB-HASP-2026-001"
 schema_version: "1.0"
 ---
 
