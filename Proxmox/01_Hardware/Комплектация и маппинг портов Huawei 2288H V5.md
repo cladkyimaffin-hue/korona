@@ -20,7 +20,7 @@ ai_summary: "Комплектация сервера Huawei FusionServer 2288H V
 dont_repeat:
   - "Не предлагать использование оптических модулей 10GBASE-T (RJ45) в SFP+ портах чипа Intel X722 — несовместимо, работает нестабильно или не работает."
 related_files:
-  - "TBD: hardware-spec.md (ещё не мигрирован, document_id DOC-2026-08-30-001 задвоен с тремя другими файлами — миграция отложена до отдельного разбора этой группы)"
+  - "ARCHIVE-HARDWARE-SPEC-DRAFT-2026-001 (hardware-spec.md перемещён в 99_Archive как устаревший черновик — вопросы CPU/RAM из него отвечены этим документом)"
 schema_version: "1.0"
 ---
 
