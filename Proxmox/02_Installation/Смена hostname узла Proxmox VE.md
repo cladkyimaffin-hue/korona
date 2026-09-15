@@ -18,7 +18,7 @@ dont_repeat:
   - "Не менять hostname только через /etc/hostname или hostnamectl без правки /etc/hosts — приведёт к рассинхронизации и ошибкам SSL."
   - "Не выполнять переименование узла, если он уже часть активного кластера — сначала вывести узел из кластера."
 related_files:
-  - "TBD: Скрипт pstInstal после установки Proxmox.md (ещё не мигрирован, document_id не присвоен)"
+  - "PROXMOX-POSTINSTALL-SCRIPT-2026-001"
 schema_version: "1.0"
 ---
 
