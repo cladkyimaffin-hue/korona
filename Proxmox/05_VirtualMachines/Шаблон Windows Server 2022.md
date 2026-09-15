@@ -27,7 +27,7 @@ dont_repeat:
   - "Не использовать IDE/SATA для системного диска Windows — только VirtIO SCSI с ISO virtio-win, подключённым уже на этапе установки."
   - "Не путать `qm` (KVM/QEMU ВМ) и `pct` (LXC-контейнеры) по одному только ID — путь конфигурации (`qemu-server/` vs `lxc/`) однозначно показывает тип объекта."
 related_files:
-  - "TBD: Клонирование шаблона ВМ 2001 (win-1c-app-01).md (мигрируется в этой же пачке)"
+  - "PROXMOX-VM-CLONE-2001-2026-001"
   - "PROXMOX-LXC-DEBIAN12-TEMPLATE-2026-001"
 schema_version: "1.0"
 ---
