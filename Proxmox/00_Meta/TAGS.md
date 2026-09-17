@@ -74,7 +74,7 @@ maintainer: "cladkyimaffin-hue"
 `Automation` · `Bash` · `Configuration` · `Hostname` · `Setup` · `Architecture` · `Security` · `Production` · `MemoryManagement` · `Diagnostics` · `Troubleshooting`
 
 ### Мониторинг
-`zabbix`
+`Zabbix` · `MariaDB` · `Nginx` · `PHP-FPM`
 
 ## Правило добавления нового тега
 
