@@ -2,6 +2,7 @@
 нужно сделать проброс 172.19.1.30 к серверу 192.168.200.224, TCP-порт 22. SSH
 
 <img width="418" height="318" alt="image" src="https://github.com/user-attachments/assets/98911354-2b8a-4b52-93c5-3bec5c64baa8" />
+<img width="297" height="205" alt="image" src="https://github.com/user-attachments/assets/86360421-62da-40d2-8188-0fff70a6bcb9" />
 <img width="1106" height="632" alt="image" src="https://github.com/user-attachments/assets/7dc3ce15-be7e-4719-892c-ef9f2a01c58a" />
 
 ### ASSISTANT
