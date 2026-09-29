@@ -3,11 +3,11 @@ document_id: ZABBIX-PVE-API-MONITORING-2026-001
 title: Мониторинг кластера Proxmox через API в Zabbix (шаблон Proxmox VE by HTTP)
   — ошибка 403 из-за Privilege Separation токена
 document_type: setup
-status: completed
+status: in_progress
 priority: high
 date_created: 2026-09-14
 date_modified: '2026-09-29'
-next_review: 2026-12-01
+next_review: 2026-10-06
 author: cladkyimaffin-hue
 category: 08_Monitoring/Zabbix
 tags:
@@ -24,7 +24,7 @@ ai_summary: 'Настройка мониторинга pve01/pve02 в Zabbix ч�
   в Privilege Separation (privsep=1) API-токенов Proxmox: токен имеет СОБСТВЕННЫЕ
   ACL, отдельные от ACL пользователя, и без явного ACL на токен доступа нет, даже
   если у пользователя он есть. Настроена фильтрация LLD discovery по макросу {$PVE.NODE.NAME},
-  чтобы хост pve01 не подтягивал метрики pve02 и наоборот.'
+  чтобы хост pve01 не подтягивал метрики pve02 и наоборот. Статус переведён обратно в in_progress: 2026-09-29 на том же токене zabbix_monitor@pve!zabbix_token обнаружена НОВАЯ, отдельная от privsep ошибка 401 Unauthorized — см. раздел «Известная проблема 3» ниже, не решена, требуется пересоздание токена.'
 dont_repeat:
 - Не считать наличие прав у пользователя (`pveum user permissions`) достаточным для
   API-токена — при privsep=1 (по умолчанию) токен имеет собственные, отдельные ACL;
@@ -42,10 +42,17 @@ dont_repeat:
   к нескольким хостам, будет дублировать метрики всех нод на каждом хосте — обязательно
   настраивать Filters + LLD macro {$PVE.NODE.NAME} сразу при добавлении второго и
   последующих хостов.
+- Секрет API-токена Proxmox показывается только один раз, в момент создания — если он
+  не сохранён немедленно, восстановить его невозможно, только пересоздать токен целиком
+  (см. «Известная проблема 3»).
+- Выдача роли на корень (`/`) токену НЕ гарантирует устранение 401, если сам секрет
+  токена в макросах Zabbix не совпадает с реальным — прежде чем менять права,
+  проверяйте `curl` с текущим секретом напрямую, в обход Zabbix.
 related_files:
 - ZABBIX-STACK-INSTALL-2026-001
 - PROXMOX-CLUSTER-QDEVICE-SETUP-2026-001
 - ZABBIX-AGENT-PVE-NODES-2026-001
+- ZABBIX-LXC-FALSE-ALERTS-2026-001
 schema_version: '1.0'
 ---
 
@@ -138,6 +145,58 @@ list-permissions` в этой версии Proxmox не существует —
 этот шаблон — если появится хост без `{$PVE.NODE.NAME}`, discovery для
 него перестанет находить ноды вообще.
 
+## ⚠️ Известная проблема 3: 401 Unauthorized (2026-09-29, не решена)
+
+**Симптом:** зависимый элемент `proxmox.node.online[pve02]` не получает
+данные, мастер-элемент (HTTP agent) возвращает ошибку. Прямой `curl` к
+`https://192.168.202.179:8006/api2/json/cluster/status` с текущим токеном
+возвращает `HTTP 401`.
+
+**Диагностика:**
+```bash
+pveum user token list zabbix_monitor@pve
+pveum user token permissions zabbix_monitor@pve zabbix_token
+```
+Токен `zabbix_token` (тот же, что использован выше для устранения 403)
+на момент проверки имел `privsep=1` и права только на `/nodes`, тогда как
+для `cluster/status` требуются права на `/`.
+
+**Что уже сделано (не помогло полностью):**
+```bash
+pveum acl modify / --roles PVEAuditor --token 'zabbix_monitor@pve!zabbix_token'
+```
+⚠️ Обратите внимание: здесь использована встроенная роль `PVEAuditor`,
+а не кастомная `Zabbix_Monitor`, описанная выше в этом же документе —
+это расхождение с изначально задокументированной настройкой **не
+объяснено источником этой правки** и требует проверки при следующей
+работе с этим токеном: применяется ли сейчас `Zabbix_Monitor`,
+`PVEAuditor`, или обе роли на разных путях.
+
+После выдачи прав на `/` ошибка 401 **сохранилась**, что указывает не
+на нехватку прав, а на несовпадение секрета токена в макросах Zabbix
+с реальным секретом (секрет отображается только один раз при создании
+токена и мог быть утерян или введён с ошибкой).
+
+**Решение (рекомендовано, не выполнено):**
+```bash
+# Пересоздание токена (секрет будет выведен в консоль один раз)
+pveum user token add zabbix_monitor@pve zabbix_token_new --comment "Zabbix monitoring replacement"
+pveum acl modify / --roles PVEAuditor --token 'zabbix_monitor@pve!zabbix_token_new'
+```
+```bash
+# Проверка напрямую, в обход Zabbix, ДО обновления макросов
+# ВАЖНО: одинарные кавычки — восклицательный знак в токене иначе триггерит history expansion в bash
+curl -k -s -w "\nHTTP_CODE: %{http_code}\n" \
+  -H 'Authorization: PVEAPIToken=zabbix_monitor@pve!zabbix_token_new:<НОВЫЙ_СЕКРЕТ>' \
+  "https://192.168.202.179:8006/api2/json/cluster/status"
+```
+Затем обновить в Zabbix, на уровне хоста `pve02`:
+- `{$PVE.TOKEN.ID}` = `zabbix_monitor@pve!zabbix_token_new`
+- `{$PVE.TOKEN.SECRET}` = `<секрет, скопированный при создании>`
+
+**Статус:** требуется выполнение и подтверждение — элемент
+`proxmox.node.online[pve02]` не собирает данные до пересоздания токена.
+
 ## Проверка результата — подтверждено
 - [x] `curl` с токеном возвращает полный JSON статуса ноды.
 - [x] Zabbix собирает метрики (~23 элемента на ноду): CPU, memory, disk, network, uptime, версия PVE.
@@ -145,6 +204,7 @@ list-permissions` в этой версии Proxmox не существует —
 - [x] Отказоустойчивость: падение мониторинга одной ноды не останавливает мониторинг другой (раздельные хосты).
 - [ ] ICMP ping для хостов — не настроен (опционально, шаблон HTTP его не требует).
 - [ ] Мониторинг самих ВМ/CT (2001, 2003) и уведомления/дашборды — не в рамках этой сессии.
+- [ ] `proxmox.node.online[pve02]` — не собирает данные из-за 401, требуется пересоздание токена (см. «Известная проблема 3»).
 
 ## ⛔ Don't repeat
 См. `dont_repeat` во фронтматтере — главное: Privilege Separation
