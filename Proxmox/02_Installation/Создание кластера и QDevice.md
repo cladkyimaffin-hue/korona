@@ -6,7 +6,7 @@ document_type: setup
 status: completed
 priority: critical
 date_created: 2026-08-30
-date_modified: '2026-09-29'
+date_modified: '2026-09-30'
 next_review: 2026-12-01
 author: cladkyimaffin-hue
 category: 02_Installation
@@ -23,7 +23,7 @@ tags:
 - HighAvailability
 ai_summary: 'Создание кластера Proxmox VE krnn из pve01 (192.168.202.121) и pve02
   (192.168.202.179), настройка внешнего Corosync QDevice на отдельном хосте Qdevice
-  (Debian 13, 192.168.202.251) — необходим для сохранения кворума при потере любого
+  (Debian 13; 192.168.202.251 при установке, с 2026-09-30 — 192.168.200.84, см. PROXMOX-QDEVICE-REPLACEMENT-2026-001) — необходим для сохранения кворума при потере любого
   одного из двух узлов. QDevice НЕ является Ceph-монитором и не хранит данные Ceph,
   даёт голос только уровню Corosync/Proxmox. Известная проблема: команда pvecm add
   qdevice <IP> в PVE 9.2 даёт ошибку 400 too many arguments — правильная команда для
@@ -45,6 +45,8 @@ schema_version: '1.0'
 ---
 
 # Создание кластера Proxmox VE (krnn) из pve01+pve02 и настройка внешнего Corosync QDevice
+
+> Актуализация 2026-09-30: QDevice заменён на хост `192.168.200.84` (`qdevice.krnn.ru`), процедура — в `PROXMOX-QDEVICE-REPLACEMENT-2026-001`. Адрес `192.168.202.251` ниже относится к исходной установке.
 
 ## Что настраивается и зачем
 Объединение `pve01` и `pve02` в кластер `krnn`, плюс внешний источник
@@ -101,7 +103,7 @@ pvecm status
 |---|---|---|
 | pve01 | узел кластера | 192.168.202.121 |
 | pve02 | узел кластера | 192.168.202.179 |
-| Qdevice | внешний источник кворума (Debian 13) | 192.168.202.251 |
+| Qdevice | внешний источник кворума (Debian 13) | 192.168.200.84 (с 2026-09-30; при установке — 192.168.202.251) |
 
 | Параметр | До QDevice | После QDevice |
 |---|---|---|
