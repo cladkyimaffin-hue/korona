@@ -53,7 +53,7 @@ maintainer: "cladkyimaffin-hue"
 `Ceph` · `Ceph-Squid` · `OSD` · `CRUSH` · `Pools` · `ceph-fast` · `ceph-bulk` · `Storage` · `WAL-DB`
 
 ### Сеть
-`Networking` · `Bonding` · `LACP` · `bond0` · `SDN` · `WebGUI` · `10GbE` · `SFP+` · `DAC-cable` · `Optics` · `Switches`
+`Networking` · `Bonding` · `LACP` · `bond0` · `nic0` · `MTU` · `SDN` · `WebGUI` · `10GbE` · `SFP+` · `DAC-cable` · `Optics` · `Switches`
 
 ### Оборудование
 `Hardware` · `Huawei-2288H-V5` · `Intel-X722` · `Intel-X710`
