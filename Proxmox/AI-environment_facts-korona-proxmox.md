@@ -1,4 +1,4 @@
----
+
 | schema_version | 1.0 |
 | status | active |
 | date_modified | 2026-09-30 |
@@ -6,7 +6,7 @@
 | file_type | environment_facts |
 | source_commit | 0230c2500f92a066444d4135d3346725ab5f01cb |
 | confidence | Факты сверены с текущими документами Proxmox и registry на указанном commit; исторические/неподтверждённые значения явно помечены. |
----
+
 
 # AI-environment facts — Proxmox
 
