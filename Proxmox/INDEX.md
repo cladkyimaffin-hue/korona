@@ -1,7 +1,7 @@
 ---
 # === БАЗОВАЯ ИНФОРМАЦИЯ ===
 date_created: 2026-09-05
-date_modified: 2026-09-05
+date_modified: 2026-09-30
 author: cladkyimaffin-hue
 status: "completed"
 
@@ -46,12 +46,12 @@ ai_summary: |
 
 key_takeaways:
   - "Proxmox-кластер krnn состоит из pve01 и pve02; IP управления: 192.168.202.121 и 192.168.202.179."
-  - "QDevice находится отдельно на Debian 13: Qdevice.krnn.ru, IP 192.168.202.251."
+  - "QDevice находится отдельно на Debian 13: qdevice.krnn.ru, IP 192.168.200.84 (заменён 2026-09-30, прежний 192.168.202.251)."
   - "QDevice даёт голос кворума Proxmox, но не является Ceph Monitor, Ceph Manager или OSD."
   - "Для двухнодового Proxmox-кластера QDevice обязателен для сохранения кворума при отказе одной ноды."
   - "На каждом узле Ceph размещаются собственные OSD; QDevice не используется для хранения Ceph-данных."
   - "Управляющая сеть использует vmbr0 и подсеть 192.168.200.0/22."
-  - "Сеть Ceph использует bond0 и подсеть 10.10.10.0/24."
+  - "Кластерная сеть Ceph использует nic0 (прямой оптический канал) и подсеть 10.10.11.0/24, MTU 9000; bond0 (10.10.10.0/24) Ceph больше не использует."
   - "bond0 создан из nic4 и nic5 в режиме active-backup."
   - "Режим active-backup даёт отказоустойчивость, но не складывает скорости двух портов."
   - "Для LACP/802.3ad требуется предварительная настройка агрегированного канала на коммутаторе."
@@ -109,10 +109,10 @@ assumptions:
   - "Кластер называется krnn."
   - "pve01 имеет адрес управления 192.168.202.121/22."
   - "pve02 имеет адрес управления 192.168.202.179/22."
-  - "QDevice имеет имя Qdevice.krnn.ru и адрес 192.168.202.251."
+  - "QDevice имеет имя qdevice.krnn.ru и адрес 192.168.200.84 (с 2026-09-30)."
   - "Шлюз сети управления: 192.168.200.1."
   - "Сеть управления подключена через vmbr0 и nic2."
-  - "Сеть Ceph использует bond0 с адресами 10.10.10.1/24 и 10.10.10.2/24."
+  - "Кластерная сеть Ceph использует nic0 с адресами 10.10.11.1/24 (pve01) и 10.10.11.2/24 (pve02), MTU 9000 (на 2026-09-30 не сохранён в /etc/network/interfaces)."
   - "bond0 состоит из nic4 и nic5."
   - "Текущий режим bond0: active-backup."
   - "На каждом физическом узле есть NVMe-диск около 3.5–3.84 ТБ и SSD sdb около 7–7.68 ТБ."
@@ -185,17 +185,16 @@ config_snippets:
     Cluster: krnn
     pve01 management: 192.168.202.121/22
     pve02 management: 192.168.202.179/22
-    QDevice: 192.168.202.251
+    QDevice: 192.168.200.84
     Management bridge: vmbr0
     Management gateway: 192.168.200.1
 
   ceph_network: |
-    pve01 bond0: 10.10.10.1/24
-    pve02 bond0: 10.10.10.2/24
-    Bond members: nic4, nic5
-    Bond mode: active-backup
-    Intended role: Ceph cluster/replication network
-    Do not assign IP addresses directly to nic4 or nic5.
+    pve01 nic0: 10.10.11.1/24 (direct optical link, MTU 9000)
+    pve02 nic0: 10.10.11.2/24 (direct optical link, MTU 9000)
+    Role: Ceph cluster/replication network (since 2026-09-30)
+    Previous network: bond0 (nic4, nic5, active-backup, 10.10.10.0/24) - no longer used by Ceph
+    Do not assign IP addresses directly to nic4 or nic5 while they are bond0 slaves.
 
   ceph_topology: |
     pve01:
@@ -280,6 +279,8 @@ related_files:
   - "02_Installation/Скрипт первичной настройки Proxmox VE pstInstall.md"
   - "02_Installation/Смена hostname узла Proxmox VE.md"
   - "03_Network/Справочник меню Datacenter Proxmox VE.md"
+  - "02_Installation/Замена Corosync QDevice.md"
+  - "04_Storage_Ceph/2026-09-30_ceph_nic0_direct_link_migration_and_recovery.md"
 
 depends_on: []
 
@@ -408,12 +409,12 @@ Ceph, сетям, виртуальным машинам, LXC-контейнер�
 | Кластер | `krnn` |
 | Узел 1 | `pve01`, `192.168.202.121/22` |
 | Узел 2 | `pve02`, `192.168.202.179/22` |
-| QDevice | `Qdevice.krnn.ru`, `192.168.202.251` |
+| QDevice | `qdevice.krnn.ru`, `192.168.200.84` |
 | Сеть управления | `192.168.200.0/22` |
 | Шлюз | `192.168.200.1` |
 | Bridge | `vmbr0` |
-| Ceph-сеть | `10.10.10.0/24` |
-| Ceph-интерфейс | `bond0` |
+| Ceph-сеть (cluster) | `10.10.11.0/24`, MTU 9000 |
+| Ceph-интерфейс | `nic0` (bond0 Ceph не использует) |
 | Bond-slaves | `nic4`, `nic5` |
 | Bond mode | `active-backup` |
 | Ceph | Squid 19.2 |
@@ -428,6 +429,7 @@ Ceph, сетям, виртуальным машинам, LXC-контейнер�
 |---|---|---|
 | Какой состав кластера? | Две ноды `pve01` и `pve02` плюс внешний QDevice на Debian. | [02_Installation/Создание кластера и QDevice.md](./02_Installation/%D0%A1%D0%BE%D0%B7%D0%B4%D0%B0%D0%BD%D0%B8%D0%B5%20%D0%BA%D0%BB%D0%B0%D1%81%D1%82%D0%B5%D1%80%D0%B0%20%D0%B8%20QDevice.md) |
 | Зачем нужен QDevice? | Он даёт дополнительный голос кворума Proxmox для двухнодовой конфигурации. | [02_Installation/Создание кластера и QDevice.md](./02_Installation/%D0%A1%D0%BE%D0%B7%D0%B4%D0%B0%D0%BD%D0%B8%D0%B5%20%D0%BA%D0%BB%D0%B0%D1%81%D1%82%D0%B5%D1%80%D0%B0%20%D0%B8%20QDevice.md) |
+| Как заменить QDevice на другой хост? | `pvecm qdevice remove`, подготовка нового хоста с `corosync-qnetd`, затем `pvecm qdevice setup <IP>` с pve01; нужен вход root по SSH-ключу на новый хост. | [02_Installation/Замена Corosync QDevice.md](./02_Installation/%D0%97%D0%B0%D0%BC%D0%B5%D0%BD%D0%B0%20Corosync%20QDevice.md) |
 | Нужно ли создавать Ceph MON на QDevice? | Нет. QDevice не является полноценной Ceph-нодой. | [04_Storage_Ceph/Ceph теория WAL-DB разные диски и HA.md](./04_Storage_Ceph/Ceph%20%D1%82%D0%B5%D0%BE%D1%80%D0%B8%D1%8F%20WAL-DB%20%D1%80%D0%B0%D0%B7%D0%BD%D1%8B%D0%B5%20%D0%B4%D0%B8%D1%81%D0%BA%D0%B8%20%D0%B8%20HA.md) |
 | Где создавать OSD? | Только на узлах с физическими дисками: `pve01` и `pve02`. | [04_Storage_Ceph/Развёртывание OSD и пулов Ceph.md](./04_Storage_Ceph/%D0%A0%D0%B0%D0%B7%D0%B2%D1%91%D1%80%D1%82%D1%8B%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5%20OSD%20%D0%B8%20%D0%BF%D1%83%D0%BB%D0%BE%D0%B2%20Ceph.md) |
 | Сколько OSD в текущей схеме? | По два OSD на каждой ноде, всего четыре. | [04_Storage_Ceph/Подготовка дисков и архитектура OSD.md](./04_Storage_Ceph/%D0%9F%D0%BE%D0%B4%D0%B3%D0%BE%D1%82%D0%BE%D0%B2%D0%BA%D0%B0%20%D0%B4%D0%B8%D1%81%D0%BA%D0%BE%D0%B2%20%D0%B8%20%D0%B0%D1%80%D1%85%D0%B8%D1%82%D0%B5%D0%BA%D1%82%D1%83%D1%80%D0%B0%20OSD.md) |
@@ -439,7 +441,8 @@ Ceph, сетям, виртуальным машинам, LXC-контейнер�
 | Можно ли использовать Ceph без HA? | Да. Ceph и HA независимы, но HA требует общего доступного хранилища. | [04_Storage_Ceph/Ceph теория WAL-DB разные диски и HA.md](./04_Storage_Ceph/Ceph%20%D1%82%D0%B5%D0%BE%D1%80%D0%B8%D1%8F%20WAL-DB%20%D1%80%D0%B0%D0%B7%D0%BD%D1%8B%D0%B5%20%D0%B4%D0%B8%D1%81%D0%BA%D0%B8%20%D0%B8%20HA.md) |
 | Когда включать HA? | После готовности кворума, Ceph, пулов, сети и проверки свободной RAM. | [03_Network/Справочник меню Datacenter Proxmox VE.md](./03_Network/%D0%A1%D0%BF%D1%80%D0%B0%D0%B2%D0%BE%D1%87%D0%BD%D0%B8%D0%BA%20%D0%BC%D0%B5%D0%BD%D1%8E%20Datacenter%20Proxmox%20VE.md) |
 | Какая сеть управления? | `vmbr0`, `192.168.202.121/22` на pve01 и `.179/22` на pve02. | [Установка Proxmox VE на 3 сервера...](./04_Storage_Ceph/%D0%90%D1%80%D1%85%D0%B8%D1%82%D0%B5%D0%BA%D1%82%D1%83%D1%80%D0%BD%D1%8B%D0%B5%20%D1%80%D0%B5%D1%88%D0%B5%D0%BD%D0%B8%D1%8F%20Ceph-%D0%BA%D0%BB%D0%B0%D1%81%D1%82%D0%B5%D1%80%D0%B0.md) |
-| Какая сеть Ceph? | `bond0`, `10.10.10.1/24` на pve01 и `10.10.10.2/24` на pve02. | [03_Network/Настройка bond0 active-backup для сети Ceph.md](./03_Network/%D0%9D%D0%B0%D1%81%D1%82%D1%80%D0%BE%D0%B9%D0%BA%D0%B0%20bond0%20active-backup%20%D0%B4%D0%BB%D1%8F%20%D1%81%D0%B5%D1%82%D0%B8%20Ceph.md) |
+| Какая сеть Ceph? | Кластерная: `nic0`, `10.10.11.1/24` на pve01 и `10.10.11.2/24` на pve02, MTU 9000 (прямой оптический канал). `bond0` Ceph не использует. | [04_Storage_Ceph/2026-09-30_ceph_nic0_direct_link_migration_and_recovery.md](./04_Storage_Ceph/2026-09-30_ceph_nic0_direct_link_migration_and_recovery.md) |
+| Что проверить, если OSD не стартуют после смены `cluster_network`? | Локальный `/etc/ceph/ceph.conf`: его `cluster_network` / `public_network` имеют приоритет над монитором; значения задавать подсетью, не закомментированными и не адресом с маской. | [04_Storage_Ceph/2026-09-30_ceph_nic0_direct_link_migration_and_recovery.md](./04_Storage_Ceph/2026-09-30_ceph_nic0_direct_link_migration_and_recovery.md) |
 | Какой режим bond0? | `active-backup`: один активный линк, второй резервный. | [03_Network/Настройка bond0 active-backup для сети Ceph.md](./03_Network/%D0%9D%D0%B0%D1%81%D1%82%D1%80%D0%BE%D0%B9%D0%BA%D0%B0%20bond0%20active-backup%20%D0%B4%D0%BB%D1%8F%20%D1%81%D0%B5%D1%82%D0%B8%20Ceph.md) |
 | Даёт ли active-backup сумму скоростей? | Нет. Для агрегации нужна 802.3ad/LACP и настройка коммутатора. | [03_Network/Настройка bond0 active-backup для сети Ceph.md](./03_Network/%D0%9D%D0%B0%D1%81%D1%82%D1%80%D0%BE%D0%B9%D0%BA%D0%B0%20bond0%20active-backup%20%D0%B4%D0%BB%D1%8F%20%D1%81%D0%B5%D1%82%D0%B8%20Ceph.md) |
 | Где настраивается IP bond? | На `bond0`, а не на `nic4` и `nic5`. | [03_Network/Настройка bond0 active-backup для сети Ceph.md](./03_Network/%D0%9D%D0%B0%D1%81%D1%82%D1%80%D0%BE%D0%B9%D0%BA%D0%B0%20bond0%20active-backup%20%D0%B4%D0%BB%D1%8F%20%D1%81%D0%B5%D1%82%D0%B8%20Ceph.md) |
@@ -476,5 +479,7 @@ Ceph, сетям, виртуальным машинам, LXC-контейнер�
   ├─ Да → читать 02_Installation/Создание кластера и QDevice.md
   ├─ Нужно добавить QDevice?
   │    └─ читать 02_Installation/Создание кластера и QDevice.md
+  ├─ Нужно заменить QDevice на другой хост?
+  │    └─ читать 02_Installation/Замена Corosync QDevice.md
   └─ Нужно понять Corosync?
        └─ читать 02_Installation/Создание кластера и QDevice.md

@@ -1,7 +1,7 @@
 ---
 schema_version: "1.0"
 status: "active"
-date_modified: 2026-09-29
+date_modified: 2026-09-30
 maintainer: "cladkyimaffin-hue"
 file_type: "environment_facts"
 source_commit: "0230c2500f92a066444d4135d3346725ab5f01cb"
@@ -20,7 +20,7 @@ confidence: "Факты сверены с текущими документам�
 - Версия: **Proxmox VE 9.2.11** (Debian 13 "trixie", ядро 7.0.14-15-pve).
 - Кластер: **`krnn`**.
 - Узлы: **`pve01` — `192.168.202.121/22`**, **`pve02` — `192.168.202.179/22`**.
-- QDevice: **`Qdevice.krnn.ru` — `192.168.202.251`**, Debian 13.
+- QDevice: **`qdevice.krnn.ru` — `192.168.200.84`**, Debian 13 (заменён 2026-09-30; прежний хост `192.168.202.251` выведен из эксплуатации).
 - Кластер состоит из двух полноценных Proxmox-узлов плюс внешний Corosync QDevice; QDevice не является Ceph-узлом.
 - Управляющая сеть: `192.168.200.0/22`, bridge `vmbr0`, gateway `192.168.200.1`.
 
@@ -29,7 +29,7 @@ confidence: "Факты сверены с текущими документам�
 - **Кластерная сеть Ceph (`cluster_network`)**: `10.10.11.0/24`.
 - **Интерфейс**: `nic0` (прямое оптическое соединение point-to-point 10 GbE между pve01 и pve02, без коммутатора).
 - **IP-адреса**: `pve01`: `10.10.11.1/24`, `pve02`: `10.10.11.2/24`.
-- **MTU**: Строго **9000** (Jumbo Frames) на интерфейсе `nic0` на обоих узлах. Критично для производительности и стабильности Ceph.
+- **MTU**: Строго **9000** (Jumbo Frames) на интерфейсе `nic0` на обоих узлах. Критично для производительности и стабильности Ceph. На 2026-09-30 значение выставлено только на работающем интерфейсе (`ip link set`): в `/etc/network/interfaces` обоих узлов строки `mtu 9000` нет (после перезагрузки узла MTU, вероятно, вернётся к 1500 — не проверялось).
 - **Публичная сеть Ceph (`public_network`)**: `192.168.200.0/22` (явно задана в `/etc/ceph/ceph.conf` и конфигурации мониторов).
 - **Статус `bond0` (`nic4`/`nic5`, `10.10.10.0/24`)**: Более **не используется** для трафика Ceph. Физически отключен от коммутатора или перепрофилирован. Любые упоминания его использования для Ceph являются устаревшими.
 
@@ -99,6 +99,7 @@ confidence: "Факты сверены с текущими документам�
 
 Профильные документы находятся по `document_id` в `00_Meta/registry.csv`. В частности:
 `PROXMOX-CLUSTER-QDEVICE-SETUP-2026-001`,
+`PROXMOX-QDEVICE-REPLACEMENT-2026-001`,
 `NETWORK-BOND0-CEPH-ACTIVEBACKUP-2026-001`,
 `PROXMOX-CEPH-OSD-DISK-PREP-2026-001`,
 `PROXMOX-CEPH-OSD-POOLS-DEPLOYMENT-2026-001`,
@@ -107,4 +108,4 @@ confidence: "Факты сверены с текущими документам�
 `ZABBIX-STACK-INSTALL-2026-001`,
 `ZABBIX-PVE-API-MONITORING-2026-001`,
 `ZABBIX-LXC-FALSE-ALERTS-2026-001` (документирует и открытый конфликт по IP этого LXC — см. `00_Meta/CONFLICTS.md`),
-`2026-09-30_ceph_nic0_direct_link_migration_and_recovery` (документирует миграцию cluster_network на nic0, настройку MTU 9000 и устранение инцидента с падением OSD из-за конфликтов в ceph.conf).
+`PROXMOX-CEPH-NIC0-DIRECT-LINK-2026-001` (документирует миграцию cluster_network на nic0, настройку MTU 9000 и устранение инцидента с падением OSD из-за конфликтов в ceph.conf).
