@@ -115,6 +115,7 @@ Proxmox/AI-environment_facts-korona-proxmox.md
 | `05_VirtualMachines/` | ВМ, шаблоны, Windows Server, клонирование |
 | `06_Troubleshooting/` | Инциденты и решения |
 | `07_Vaultwarden/` | Vaultwarden |
+| `08_Monitoring/` | Мониторинг |
 | `99_Archive/` | Устаревшие документы |
 
 ---
