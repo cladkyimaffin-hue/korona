@@ -59,7 +59,7 @@ maintainer: "cladkyimaffin-hue"
 `Hardware` · `Huawei-2288H-V5` · `Intel-X722` · `Intel-X710`
 
 ### Виртуальные машины и шаблоны
-`Template` · `FullClone` · `VirtIO` · `Sysprep` · `UEFI` · `TPM` · `QEMUGuestAgent` · `BalloonService` · `USB-Passthrough` · `HASP`
+`Template` · `FullClone` · `VirtIO` · `Sysprep` · `UEFI` · `TPM` · `QEMUGuestAgent` · `BalloonService` · `USB-Passthrough` · `HASP` · `Migration`
 
 ### Windows / AD / службы
 `WindowsServer2022` · `WindowsServer2025` · `ActiveDirectory` · `AD-DS` · `krnn.ru` · `Replication` · `DNS` · `RDS` · `dc-promotion` · `dfsr` · `sysvol`
