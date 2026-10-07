@@ -1,7 +1,7 @@
 ---
 # === БАЗОВАЯ ИНФОРМАЦИЯ ===
 date_created: 2026-09-05
-date_modified: 2026-10-01
+date_modified: 2026-10-08
 author: cladkyimaffin-hue
 status: "completed"
 
@@ -281,6 +281,7 @@ related_files:
   - "03_Network/Справочник меню Datacenter Proxmox VE.md"
   - "02_Installation/Замена Corosync QDevice.md"
   - "04_Storage_Ceph/2026-09-30_ceph_nic0_direct_link_migration_and_recovery.md"
+  - "05_VirtualMachines/План миграции ВМ для изоляции 1С ERP.md"
 
 depends_on: []
 
@@ -467,6 +468,7 @@ Ceph, сетям, виртуальным машинам, LXC-контейнер�
 | Почему Load Average завышен на LXC-хосте Zabbix при 100% CPU idle? | Рассинхрон `Hostname` агента и имени хоста в Zabbix (retry-шторм) плюс артефакт LXC — контейнер видит все ядра физического хоста. | [./08_Monitoring/Zabbix/%D0%9B%D0%BE%D0%B6%D0%BD%D1%8B%D0%B5%20%D0%B0%D0%BB%D0%B5%D1%80%D1%82%D1%8B%20Zabbix%20%D0%B4%D0%BB%D1%8F%20LXC-%D1%85%D0%BE%D1%81%D1%82%D0%B0%20Zabbix%20%28%D0%BF%D0%B0%D0%BC%D1%8F%D1%82%D1%8C%20Load%20Average%20%D0%B8%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B%29.md](./08_Monitoring/Zabbix/%D0%9B%D0%BE%D0%B6%D0%BD%D1%8B%D0%B5%20%D0%B0%D0%BB%D0%B5%D1%80%D1%82%D1%8B%20Zabbix%20%D0%B4%D0%BB%D1%8F%20LXC-%D1%85%D0%BE%D1%81%D1%82%D0%B0%20Zabbix%20%28%D0%BF%D0%B0%D0%BC%D1%8F%D1%82%D1%8C%20Load%20Average%20%D0%B8%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B%29.md) |
 | Мониторинг Proxmox через Zabbix даёт 401 Unauthorized — что делать? | Скорее всего секрет API-токена не совпадает с реальным (показывается только один раз при создании) — пересоздать токен, а не только менять права. | [./08_Monitoring/Zabbix/%D0%9C%D0%BE%D0%BD%D0%B8%D1%82%D0%BE%D1%80%D0%B8%D0%BD%D0%B3%20Proxmox%20%D1%87%D0%B5%D1%80%D0%B5%D0%B7%20API.md](./08_Monitoring/Zabbix/%D0%9C%D0%BE%D0%BD%D0%B8%D1%82%D0%BE%D1%80%D0%B8%D0%BD%D0%B3%20Proxmox%20%D1%87%D0%B5%D1%80%D0%B5%D0%B7%20API.md) |
 | Какой тип кабеля нужен для 10GBASE-SR? | LC duplex, 2 волокна, многомодовый OM3/OM4, 50/125. | [01_Hardware/Подбор коммутатора и оптики.md](./01_Hardware/%D0%9F%D0%BE%D0%B4%D0%B1%D0%BE%D1%80%20%D0%BA%D0%BE%D0%BC%D0%BC%D1%83%D1%82%D0%B0%D1%82%D0%BE%D1%80%D0%B0%20%D0%B8%20%D0%BE%D0%BF%D1%82%D0%B8%D0%BA%D0%B8.md) |
+| Зачем нужна миграция ВМ с pve01 на pve02? | Для устранения эффекта «шумного соседа» и изоляции критичной ВМ 1С ERP (srv1c) на pve01, так как pve01 загружен на ~200 GiB RAM, а pve02 свободен. | [05_VirtualMachines/План миграции ВМ для изоляции 1С ERP.md](./05_VirtualMachines/%D0%9F%D0%BB%D0%B0%D0%BD%20%D0%BC%D0%B8%D0%B3%D1%80%D0%B0%D1%86%D0%B8%D0%B8%20%D0%92%D0%9C%20%D0%B4%D0%BB%D1%8F%20%D0%B8%D0%B7%D0%BE%D0%BB%D1%8F%D1%86%D0%B8%D0%B8%201%D0%A1%20ERP.md) |
 
 ---
 
