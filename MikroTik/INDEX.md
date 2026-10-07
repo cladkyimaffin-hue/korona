@@ -17,6 +17,13 @@ source_of_truth: "00_Meta/registry.csv"
 
 ## Документы
 
+
+### `00_Inbox`
+
+| ID | Документ | Тип | Статус | Приоритет | Теги |
+|---|---|---|---|---|---|
+| `INBOX-MIKROTIK-WIREGUARD-RAW-2026-001` | [Raw WireGuard MikroTik Setup 2026-10-07](./00_Inbox/Raw-WireGuard-MikroTik-Setup-2026-10-07.md) | `reference` | `completed` | `high` | `RouterOS`, `MikroTik`, `VPN`, `WireGuard` |
+
 ### `01_Interfaces`
 
 | ID | Документ | Тип | Статус | Приоритет | Теги |
@@ -36,11 +43,16 @@ source_of_truth: "00_Meta/registry.csv"
 |---|---|---|---|---|---|
 | `NETWORK-MIKROTIK-VPN-PROFILE-BROKEN-2026-001` | [VPN-профиль MikroTik ссылается на нерабочую подсеть — пользователи получают недействительные адреса](./03_VPN/VPN-%D0%BF%D1%80%D0%BE%D1%84%D0%B8%D0%BB%D1%8C%20%D1%81%D1%81%D1%8B%D0%BB%D0%B0%D0%B5%D1%82%D1%81%D1%8F%20%D0%BD%D0%B0%20%D0%BD%D0%B5%D1%80%D0%B0%D0%B1%D0%BE%D1%87%D1%83%D1%8E%20%D0%BF%D0%BE%D0%B4%D1%81%D0%B5%D1%82%D1%8C.md) | `troubleshooting` | `completed` | `critical` | `RouterOS`, `MikroTik`, `VPN`, `Audit`, `Troubleshooting` |
 
+| `VPN-MIKROTIK-WIREGUARD-SERVER-2026-001` | [WireGuard — сервер wg-korona](./03_VPN/WireGuard%20%E2%80%94%20%D1%81%D0%B5%D1%80%D0%B2%D0%B5%D1%80%20wg-korona.md) | `reference` | `completed` | `high` | `RouterOS`, `MikroTik`, `VPN`, `WireGuard`, `Firewall`, `NAT` |
+| `VPN-MIKROTIK-WIREGUARD-ADD-USER-2026-001` | [WireGuard — добавление нового пользователя](./03_VPN/WireGuard%20%E2%80%94%20%D0%B4%D0%BE%D0%B1%D0%B0%D0%B2%D0%BB%D0%B5%D0%BD%D0%B8%D0%B5%20%D0%BD%D0%BE%D0%B2%D0%BE%D0%B3%D0%BE%20%D0%BF%D0%BE%D0%BB%D1%8C%D0%B7%D0%BE%D0%B2%D0%B0%D1%82%D0%B5%D0%BB%D1%8F.md) | `setup` | `completed` | `medium` | `RouterOS`, `MikroTik`, `VPN`, `WireGuard`, `Configuration` |
+
 ### `05_Troubleshooting`
 
 | ID | Документ | Тип | Статус | Приоритет | Теги |
 |---|---|---|---|---|---|
 | `MikroTik-CRITICAL-SECURITY-PLAN-2026-001` | [Критические уязвимости MikroTik — приоритизированный план устранения (ничего ещё не применено)](./05_Troubleshooting/%D0%9A%D1%80%D0%B8%D1%82%D0%B8%D1%87%D0%B5%D1%81%D0%BA%D0%B8%D0%B5%20%D1%83%D1%8F%D0%B7%D0%B2%D0%B8%D0%BC%D0%BE%D1%81%D1%82%D0%B8%20%E2%80%94%20%D0%BF%D0%BB%D0%B0%D0%BD%20%D1%83%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B5%D0%BD%D0%B8%D1%8F.md) | `troubleshooting` | `in_progress` | `critical` | `RouterOS`, `MikroTik`, `Security`, `Audit`, `Troubleshooting` |
+
+| `TS-MIKROTIK-WIREGUARD-ACCESS-2026-001` | [WireGuard — диагностика доступа и порядок firewall](./05_Troubleshooting/WireGuard%20%E2%80%94%20%D0%B4%D0%B8%D0%B0%D0%B3%D0%BD%D0%BE%D1%81%D1%82%D0%B8%D0%BA%D0%B0%20%D0%B4%D0%BE%D1%81%D1%82%D1%83%D0%BF%D0%B0%20%D0%B8%20%D0%BF%D0%BE%D1%80%D1%8F%D0%B4%D0%BE%D0%BA%20firewall.md) | `troubleshooting` | `completed` | `high` | `RouterOS`, `MikroTik`, `VPN`, `WireGuard`, `Firewall`, `Troubleshooting` |
 
 ### `06_Wireless`
 
