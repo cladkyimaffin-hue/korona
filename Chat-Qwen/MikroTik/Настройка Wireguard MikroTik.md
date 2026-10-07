@@ -1,3 +1,6 @@
+
+> ⚠️ **SECURITY NOTICE:** Этот файл содержит сырой экспорт диалога. Приватные ключи WireGuard были вырезаны (redacted) в целях безопасности. Канонические обработанные документы находятся в `MikroTik/03_VPN/` и `MikroTik/05_Troubleshooting/`.
+
 ### USER
 изучи полностью https://github.com/cladkyimaffin-hue/korona/tree/2b82e68ec0da93c1894181c8b640c795a5d74740/MikroTik
 надо настроить wireguard
@@ -394,7 +397,7 @@ bad parameter where (line 1 column 29)
 В выводе вы увидите блок `/interface wireguard`, где для `wg-temp` будут указаны оба ключа:
 ```routeros
 /interface wireguard
-add name=wg-temp listen-port=... private-key="****..." public-key="****..."
+add name=wg-temp listen-port=... private-key="[REDACTED: PRIVATE KEY EXPOSED]" public-key="****..."
 ```
 **Запишите оба значения** (`private-key` и `public-key`) для `wg-temp`.
 
