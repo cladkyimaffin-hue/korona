@@ -4,6 +4,13 @@ status: "active"
 maintainer: "cladkyimaffin-hue"
 ---
 
+- 2026-10-07 | new-doc | Добавлен troubleshooting-документ по проблемам DNS, firewall order, Clash и доступу к локальным сервисам при настройке WireGuard. | Qwen (по запросу cladkyimaffin-hue)
+- 2026-10-07 | new-doc | Добавлена процедура добавления пользователей WireGuard (Windows + Android). | Qwen (по запросу cladkyimaffin-hue)
+- 2026-10-07 | new-doc | Добавлен configuration-документ по WireGuard-серверу wg-korona в 03_VPN. | Qwen (по запросу cladkyimaffin-hue)
+- 2026-10-07 | new-doc | Добавлен redacted raw-лог настройки WireGuard в 00_Inbox. Приватные ключи вырезаны. | Qwen (по запросу cladkyimaffin-hue)
+
+
+
 # 📜 CHANGELOG.md — журнал изменений конвейера (домен MikroTik)
 
 Формат записи и типы событий — см. `Proxmox/00_Meta/CHANGELOG.md`
