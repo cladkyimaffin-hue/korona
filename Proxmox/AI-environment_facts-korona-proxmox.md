@@ -1,7 +1,7 @@
 ---
 schema_version: "1.0"
 status: "active"
-date_modified: 2026-10-07
+date_modified: 2026-10-12
 maintainer: "cladkyimaffin-hue"
 file_type: "environment_facts"
 source_commit: "0230c2500f92a066444d4135d3346725ab5f01cb"
@@ -58,7 +58,7 @@ confidence: "Факты сверены с текущими документам�
 
 ### VM 2001
 
-- Имя: `win-1c-app-01` / сервер приложений 1С:ERP.
+- Имя: `win-1c-app-01` / сервер приложений 1С:ERP (в Proxmox по `qm config` на 2026-10-12 имя ВМ — `Srv1c`; расхождение, см. `00_Meta/CONFLICTS.md`).
 - Создана из VM 2000 через **Full Clone**.
 - Storage: `ceph-fast`.
 - Диск `scsi0`: около 1 ТБ.
@@ -78,6 +78,12 @@ confidence: "Факты сверены с текущими документам�
 - Debian 12, Zabbix Server 7.0 LTS.
 - Шаблон: LXC 1000.
 - Перед работой с CTID/IP всегда сверять `pct list` и текущую конфигурацию.
+
+## Автозапуск ВМ и LXC (pve01)
+
+- **VERIFIED (выводы `qm config` и `pct config`):** `onboot: 1` у ВМ 2001 (`Srv1c`), 2002 (`AD`), 2003 (`TC`) и CT 600 (`passwd`, Vaultwarden), CT 700 (`zabbix`); до настройки параметра `onboot` не было.
+- **VERIFIED:** порядок запуска `startup`: `AD` (2002, `order=1,up=120`) → `TC` (2003, `order=2,up=60`) → `Srv1c` (2001, `order=3,up=120`) → `passwd` (CT 600, `order=4,up=60`) → `zabbix` (CT 700, `order=5,up=0`). Параметр `down` не задан.
+- **INFERRED:** поведение при перезагрузке узла не проверялось; подробности и открытые вопросы — в `PROXMOX-AUTOSTART-STARTUP-ORDER-2026-001`.
 
 ## Active Directory
 
@@ -116,6 +122,7 @@ confidence: "Факты сверены с текущими документам�
 `PROXMOX-WINSRV2022-TEMPLATE-2026-001`,
 `PROXMOX-VM-CLONE-2001-2026-001`,
 `PROXMOX-VM-MIGRATION-ISOLATION-2026-001` (план изоляции ВМ 1С ERP; гипотеза, не подтверждена замерами),
+`PROXMOX-AUTOSTART-STARTUP-ORDER-2026-001` (автозапуск и порядок старта ВМ и LXC на pve01),
 `ZABBIX-STACK-INSTALL-2026-001`,
 `ZABBIX-PVE-API-MONITORING-2026-001`,
 `ZABBIX-LXC-FALSE-ALERTS-2026-001` (документирует и открытый конфликт по IP этого LXC — см. `00_Meta/CONFLICTS.md`),

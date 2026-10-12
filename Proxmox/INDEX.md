@@ -1,7 +1,7 @@
 ---
 # === БАЗОВАЯ ИНФОРМАЦИЯ ===
 date_created: 2026-09-05
-date_modified: 2026-10-07
+date_modified: 2026-10-12
 author: cladkyimaffin-hue
 status: "completed"
 
@@ -282,6 +282,7 @@ related_files:
   - "02_Installation/Замена Corosync QDevice.md"
   - "04_Storage_Ceph/2026-09-30_ceph_nic0_direct_link_migration_and_recovery.md"
   - "05_VirtualMachines/План миграции ВМ для изоляции 1С ERP.md"
+  - "05_VirtualMachines/Автозапуск и порядок старта ВМ и LXC на pve01.md"
 
 depends_on: []
 
@@ -469,6 +470,7 @@ Ceph, сетям, виртуальным машинам, LXC-контейнер�
 | Мониторинг Proxmox через Zabbix даёт 401 Unauthorized — что делать? | Скорее всего секрет API-токена не совпадает с реальным (показывается только один раз при создании) — пересоздать токен, а не только менять права. | [./08_Monitoring/Zabbix/%D0%9C%D0%BE%D0%BD%D0%B8%D1%82%D0%BE%D1%80%D0%B8%D0%BD%D0%B3%20Proxmox%20%D1%87%D0%B5%D1%80%D0%B5%D0%B7%20API.md](./08_Monitoring/Zabbix/%D0%9C%D0%BE%D0%BD%D0%B8%D1%82%D0%BE%D1%80%D0%B8%D0%BD%D0%B3%20Proxmox%20%D1%87%D0%B5%D1%80%D0%B5%D0%B7%20API.md) |
 | Какой тип кабеля нужен для 10GBASE-SR? | LC duplex, 2 волокна, многомодовый OM3/OM4, 50/125. | [01_Hardware/Подбор коммутатора и оптики.md](./01_Hardware/%D0%9F%D0%BE%D0%B4%D0%B1%D0%BE%D1%80%20%D0%BA%D0%BE%D0%BC%D0%BC%D1%83%D1%82%D0%B0%D1%82%D0%BE%D1%80%D0%B0%20%D0%B8%20%D0%BE%D0%BF%D1%82%D0%B8%D0%BA%D0%B8.md) |
 | Зачем планируется миграция ВМ с pve01 на pve02? | Идея администратора: оставить на pve01 только ВМ 1С ERP, так как pve01 загружен на ~200 GiB RAM из 250, а pve02 свободен. Причина жалоб на скорость 1С не подтверждена замерами (INFERRED), миграция не начата. | [05_VirtualMachines/План миграции ВМ для изоляции 1С ERP.md](./05_VirtualMachines/%D0%9F%D0%BB%D0%B0%D0%BD%20%D0%BC%D0%B8%D0%B3%D1%80%D0%B0%D1%86%D0%B8%D0%B8%20%D0%92%D0%9C%20%D0%B4%D0%BB%D1%8F%20%D0%B8%D0%B7%D0%BE%D0%BB%D1%8F%D1%86%D0%B8%D0%B8%201%D0%A1%20ERP.md) |
+| Включён ли автозапуск ВМ и LXC при перезагрузке pve01 и в каком порядке они стартуют? | Да: `onboot: 1` у ВМ 2001, 2002, 2003 и CT 600, 700; порядок `startup`: AD (2002) → TC (2003) → Srv1c (2001) → passwd (CT 600) → zabbix (CT 700). Конфигурация подтверждена выводом команд, перезагрузкой узла не проверялось. | [05_VirtualMachines/Автозапуск и порядок старта ВМ и LXC на pve01.md](./05_VirtualMachines/%D0%90%D0%B2%D1%82%D0%BE%D0%B7%D0%B0%D0%BF%D1%83%D1%81%D0%BA%20%D0%B8%20%D0%BF%D0%BE%D1%80%D1%8F%D0%B4%D0%BE%D0%BA%20%D1%81%D1%82%D0%B0%D1%80%D1%82%D0%B0%20%D0%92%D0%9C%20%D0%B8%20LXC%20%D0%BD%D0%B0%20pve01.md) |
 
 ---
 
