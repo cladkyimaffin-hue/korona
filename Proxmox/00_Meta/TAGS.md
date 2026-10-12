@@ -43,6 +43,7 @@ maintainer: "cladkyimaffin-hue"
 | терминальный сервер, Remote Desktop Services | `RDS` (RDS Session Host / RDS Licensing / RDS CAL — слишком детально для тега, это уже содержание документа, не тег) |
 | виртуальная машина | — (удалено: слишком общий тег, не несёт поисковой ценности; вместо этого — конкретный `VM-XXXX`) |
 | репликация | `Replication` |
+| автозапуск, автостарт, onboot, startup order | `Autostart` |
 
 ## Группы тегов
 
@@ -59,7 +60,7 @@ maintainer: "cladkyimaffin-hue"
 `Hardware` · `Huawei-2288H-V5` · `Intel-X722` · `Intel-X710`
 
 ### Виртуальные машины и шаблоны
-`Template` · `FullClone` · `VirtIO` · `Sysprep` · `UEFI` · `TPM` · `QEMUGuestAgent` · `BalloonService` · `USB-Passthrough` · `HASP` · `Migration`
+`Template` · `FullClone` · `VirtIO` · `Sysprep` · `UEFI` · `TPM` · `QEMUGuestAgent` · `BalloonService` · `USB-Passthrough` · `HASP` · `Migration` · `Autostart`
 
 ### Windows / AD / службы
 `WindowsServer2022` · `WindowsServer2025` · `ActiveDirectory` · `AD-DS` · `krnn.ru` · `Replication` · `DNS` · `RDS` · `dc-promotion` · `dfsr` · `sysvol`
