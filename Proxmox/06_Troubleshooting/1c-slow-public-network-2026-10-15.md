@@ -1,6 +1,6 @@
 ---
 document_id: PROXMOX-CEPH-PUBLIC-NETWORK-1C-2026-001
-title: Тормоза 1С (ВМ 2001 Srv1c): public_network и линк pve02 — ЧАСТИЧНО ПРОВЕРЕНО
+title: Тормоза 1С (ВМ 2001 Srv1c) public_network и линк pve02 — ЧАСТИЧНО ПРОВЕРЕНО
 document_type: troubleshooting
 status: in_progress
 priority: high
