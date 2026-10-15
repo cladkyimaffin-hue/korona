@@ -1,14 +1,14 @@
 ---
-document_id: PROXMOX-CEPH-PUBLIC-NETWORK-1C-2026-001
-title: Тормоза 1С (ВМ 2001 Srv1c) public_network и линк pve02 — ЧАСТИЧНО ПРОВЕРЕНО
-document_type: troubleshooting
-status: in_progress
-priority: high
+document_id: "PROXMOX-CEPH-PUBLIC-NETWORK-1C-2026-001"
+title: "Тормоза 1С (ВМ 2001 Srv1c): public_network и линк pve02 — ЧАСТИЧНО ПРОВЕРЕНО"
+document_type: "troubleshooting"
+status: "in_progress"
+priority: "high"
 date_created: 2026-10-15
 date_modified: 2026-10-15
 next_review: 2026-11-15
-author: cladkyimaffin-hue
-category: 06_Troubleshooting
+author: "cladkyimaffin-hue"
+category: "06_Troubleshooting"
 tags:
   - ProxmoxVE
   - Ceph
@@ -19,19 +19,19 @@ tags:
   - 1C
   - pve01
   - pve02
-ai_summary: Диагностика жалоб на тормоза 1С на ВМ 2001 (Srv1c). Клиентский трафик Ceph от ВМ идёт через public_network, который на обоих узлах работает через nic2 на 1 Гбит/с (VERIFIED). Причина тормозов не доказана: нужны замеры задержки по образам RBD и карта OSD для диска ВМ.
+ai_summary: "Диагностика жалоб на тормоза 1С на ВМ 2001 (Srv1c). Клиентский трафик Ceph от ВМ идёт через public_network, который на обоих узлах работает через nic2 на 1 Гбит/с (VERIFIED). Причина тормозов не доказана: нужны замеры задержки по образам RBD и карта OSD для диска ВМ."
 dont_repeat:
-  - Не считать скорость моста vmbr0 по ethtool скоростью линка: он показывает значение по умолчанию. Проверять физический порт nic2 через ethtool и bridge link.
-  - Не считать 1 Гбит/с единственной причиной тормозов без замера задержки и пропускной способности с ВМ.
-  - Не менять public_network на рабочем кластере без плана отката и доступа через консоль или IPMI: в кластере два монитора Ceph, при потере связи с одним кворум теряется.
-  - Схема сети и физические подключения — в PROXMOX-NETWORK-TOPOLOGY-2026-001, здесь не дублировать.
+  - "Не считать скорость моста vmbr0 по ethtool скоростью линка: он показывает значение по умолчанию. Проверять физический порт nic2 через ethtool и bridge link."
+  - "Не считать 1 Гбит/с единственной причиной тормозов без замера задержки и пропускной способности с ВМ."
+  - "Не менять public_network на рабочем кластере без плана отката и доступа через консоль или IPMI. В кластере два монитора Ceph, при потере связи с одним кворум теряется."
+  - "Схема сети и физические подключения описаны в PROXMOX-NETWORK-TOPOLOGY-2026-001, здесь не дублировать."
 vm_id: "2001"
 related_files:
-  - PROXMOX-NETWORK-TOPOLOGY-2026-001
-  - PROXMOX-CEPH-BOND0-LATENCY-INVESTIGATION-2026-001
-  - PROXMOX-VM-MIGRATION-ISOLATION-2026-001
-  - PROXMOX-VM-CLONE-2001-2026-001
-  - PROXMOX-CEPH-NIC0-DIRECT-LINK-2026-001
+  - "PROXMOX-NETWORK-TOPOLOGY-2026-001"
+  - "PROXMOX-CEPH-BOND0-LATENCY-INVESTIGATION-2026-001"
+  - "PROXMOX-VM-MIGRATION-ISOLATION-2026-001"
+  - "PROXMOX-VM-CLONE-2001-2026-001"
+  - "PROXMOX-CEPH-NIC0-DIRECT-LINK-2026-001"
 schema_version: "1.0"
 ---
 
@@ -82,30 +82,41 @@ schema_version: "1.0"
 ## План проверки (только чтение)
 
 1. Определить образ диска ВМ 2001 и его объекты:
+
 ```bash
-   qm config 2001 | grep scsi0
-   rbd ls -p ceph-fast
-   rbd info ceph-fast/<имя_образа>
+qm config 2001 | grep scsi0
+rbd ls -p ceph-fast
+rbd info ceph-fast/<имя_образа>
 ```
+
 2. Найти OSD, на которых лежат объекты образа (из `block_name_prefix` в выводе `rbd info`):
+
 ```bash
-   ceph osd map ceph-fast <имя_объекта>
+ceph osd map ceph-fast <имя_объекта>
 ```
+
    Повторить для нескольких объектов, чтобы оценить распределение по узлам.
+
 3. Замерить задержку и пропускную способность по образу во время обычной работы 1С:
+
 ```bash
-   rbd perf image iostat ceph-fast
+rbd perf image iostat ceph-fast
 ```
+
 4. Сопоставить PID `kvm` с VMID:
+
 ```bash
-   ps -o pid,args -p 60904,61183,61372 | grep -o -- '-id [0-9]*'
+ps -o pid,args -p 60904,61183,61372 | grep -o -- '-id [0-9]*'
 ```
+
 5. Разобрать `SYN-SENT` у corosync-qdevice на pve02:
+
 ```bash
-   corosync-qdevice-tool -s
-   nc -vz 192.168.200.84 5403
-   journalctl -u corosync-qdevice --since "-1 day"
+corosync-qdevice-tool -s
+nc -vz 192.168.200.84 5403
+journalctl -u corosync-qdevice --since "-1 day"
 ```
+
 6. Только после шагов 1–3: решить, нужен ли 10G для `public_network`. Если да, проверить свободный порт (`nic1` или `nic3`), тип разъёма и порт коммутатора. Любое изменение сети планировать с откатом (см. ограничения ниже).
 
 ## Критерии решения
