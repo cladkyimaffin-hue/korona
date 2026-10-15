@@ -76,7 +76,7 @@ maintainer: "cladkyimaffin-hue"
 - Источник A: `registry.csv` и фронтматтер трёх документов (`ZABBIX-STACK-INSTALL-2026-001`, `ZABBIX-PVE-API-MONITORING-2026-001`, `ZABBIX-AGENT-PVE-NODES-2026-001`) — `category: 08_Monitoring/Zabbix`.
 - Источник B: `AI-ADD-DATA-Cloud-INSTRUCTIONS.md`, п. 15а и 28 — `category` равен имени папки верхнего уровня (`08_Monitoring`), без подпапок. Документ `ZABBIX-LXC-FALSE-ALERTS-2026-001` использует `08_Monitoring`.
 - Почему противоречие: одно и то же поле у соседних документов записано по-разному.
-- **Решение администратора (2026-10-15):** оставить `08_Monitoring/Zabbix` для трёх документов. Правило не менять. Остаётся вопрос: изменить правило протокола (разрешить подкатегорию) или привести все документы к `08_Monitoring`. Этот вопрос открыт, см. NEEDS HUMAN VERIFICATION.
+- **Решение администратора (2026-10-15):** оставить `08_Monitoring/Zabbix` для трёх документов. Протокол `AI-ADD-DATA-Cloud-INSTRUCTIONS.md` изменён: разрешена одна документированная подпапка категории (п. 15, 15а, чек-лист 28). Подпапка `08_Monitoring/Zabbix` описана в `AI-README.md`.
 
 ### [РЕШЕНО] Дубль `99_Archive/AI-environment_facts-korona-proxmox.md`
 - Дата обнаружения: 2026-10-15
