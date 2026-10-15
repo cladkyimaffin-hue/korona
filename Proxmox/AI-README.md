@@ -78,6 +78,7 @@
 | `05_VirtualMachines/` | Виртуальные машины, шаблоны, клонирование, Windows Server, Active Directory |
 | `06_Troubleshooting/` | Инциденты и их решения |
 | `07_Vaultwarden/` | Сервер паролей Vaultwarden |
+| `08_Monitoring/` | Мониторинг. Подпапка `Zabbix/` — документы стека Zabbix (LXC 700, мониторинг Proxmox через API, агенты на узлах) |
 | `99_Archive/` | Устаревшие документы, помеченные `superseded_by` |
 
 Корневые файлы `Proxmox/` (не в подпапках): `AI-README.md` (этот файл),
