@@ -3,12 +3,8 @@ title: Proxmox Domain Entry Point
 author: Korona
 version: 1.0
 tags:
-  - proxmox
-  - proxmox-ve
-  - ceph
-  - virtual-machines
-  - infrastructure
-  - ai
+  - ProxmoxVE
+  - Ceph
 ---
 
 # START-HERE.md
@@ -36,7 +32,7 @@ tags:
 ```text
 Proxmox/START-HERE.md
 Proxmox/AI-README.md
-Proxmox/00_Meta/INDEX.md
+Proxmox/INDEX.md
 Proxmox/00_Meta/registry.csv
 Proxmox/AI-environment_facts-korona-proxmox.md
 ```

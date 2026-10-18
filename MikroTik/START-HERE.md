@@ -3,10 +3,8 @@ title: MikroTik Domain Entry Point
 author: Korona
 version: 1.0
 tags:
-  - mikrotik
-  - routeros
-  - documentation
-  - ai
+  - MikroTik
+  - RouterOS
 ---
 
 # START-HERE.md
@@ -26,7 +24,7 @@ tags:
 Открыть и прочитать:
 
 - `AI-README.md`
-- `00_Meta/INDEX.md`
+- `INDEX.md`
 - либо `00_Meta/registry.csv`
 
 Цель:
@@ -212,7 +210,7 @@ VLAN:
 ```text
 MikroTik/AI-README.md
 MikroTik/AI-environment_facts-korona-mikrotik.md
-MikroTik/00_Meta/INDEX.md
+MikroTik/INDEX.md
 MikroTik/00_Meta/registry.csv
 ```
 
