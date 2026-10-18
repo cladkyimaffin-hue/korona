@@ -1,7 +1,7 @@
 ---
 schema_version: "1.0"
 status: "active"
-date_modified: 2026-10-15
+date_modified: 2026-10-18
 maintainer: "cladkyimaffin-hue"
 file_type: "environment_facts"
 source_commit: "0230c2500f92a066444d4135d3346725ab5f01cb"
@@ -59,12 +59,12 @@ confidence: "Факты сверены с текущими документам�
 
 ### VM 2001
 
-- Имя: `win-1c-app-01` / сервер приложений 1С:ERP (в Proxmox по `qm config` на 2026-10-12 имя ВМ — `Srv1c`; расхождение, см. `00_Meta/CONFLICTS.md`).
+- Имя в Proxmox: **`Srv1c`** (VERIFIED: `qm config 2001` на `pve01`, 2026-10-18; то же в `/etc/pve/qemu-server/2001.conf`, 2026-10-15). Роль: сервер приложений 1С:ERP. Имя `win-1c-app-01` взято из команды первоначального клонирования (2026-09); сейчас в Proxmox оно не используется. Имя хоста внутри Windows не проверялось.
 - Создана из VM 2000 через **Full Clone**.
 - Storage: `ceph-fast`.
 - Диск `scsi0`: около 1 ТБ.
 - RAM: `163840 MiB` (~160 GiB).
-- Конфигурация клонирования документирует `24 vCPU` (1 socket × 24 cores); перед любой операцией проверять текущий `qm config 2001`.
+- CPU: **20 vCPU** (1 socket × 20 cores; VERIFIED: `qm config 2001`, 2026-10-18). При клонировании выставляли 24 vCPU, позже значение изменено на 20, причина изменения не задокументирована. `numa: 0`, тип процессора `x86-64-v2-AES`.
 - `qm resize` не принимает `--storage`.
 
 ### VM 2003
