@@ -317,7 +317,7 @@ Storage: ceph-fast
 Диск: scsi0
 Размер: 1 ТБ
 RAM: 163840 MiB / 160 ГиБ
-CPU: 24 vCPU
+CPU: 20 vCPU
 BIOS: OVMF / UEFI
 Machine: q35
 TPM: 2.0
