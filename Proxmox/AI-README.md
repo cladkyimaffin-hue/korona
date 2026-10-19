@@ -261,8 +261,8 @@ Proxmox/04_Storage_Ceph/Ceph теория WAL-DB разные диски и HA.m
 | Диск | scsi0 |
 | Размер диска | 1 ТБ |
 | RAM | 163840 MiB / 160 ГиБ |
-| CPU | 24 vCPU |
-| CPU topology | 1 socket × 24 cores |
+| CPU | 20 vCPU |
+| CPU topology | 1 socket × 20 cores |
 | BIOS | OVMF / UEFI |
 | Machine | q35 |
 | TPM | TPM 2.0 |
