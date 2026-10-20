@@ -75,7 +75,8 @@ confidence: "Факты сверены с текущими документам�
 ### LXC Zabbix
 
 - CTID: **700**.
-- IP: **`192.168.200.223/22`**.
+- IP: **`192.168.200.223/22`** (подтверждён администратором; расхождение закрыто, см. `00_Meta/CONFLICTS.md`, архив).
+- Узел: **`pve01`** по последнему выводу `pct config` (VERIFIED, `PROXMOX-AUTOSTART-STARTUP-ORDER-2026-001`, 2026-10-12); `ZABBIX-LXC-FALSE-ALERTS-2026-001` называет `pve02` — открытое расхождение в `00_Meta/CONFLICTS.md`.
 - Debian 12, Zabbix Server 7.0 LTS.
 - Шаблон: LXC 1000.
 - Перед работой с CTID/IP всегда сверять `pct list` и текущую конфигурацию.
@@ -128,5 +129,5 @@ confidence: "Факты сверены с текущими документам�
 `PROXMOX-CEPH-PUBLIC-NETWORK-1C-2026-001` (тормоза 1С и public_network),
 `ZABBIX-STACK-INSTALL-2026-001`,
 `ZABBIX-PVE-API-MONITORING-2026-001`,
-`ZABBIX-LXC-FALSE-ALERTS-2026-001` (документирует и открытый конфликт по IP этого LXC — см. `00_Meta/CONFLICTS.md`),
+`ZABBIX-LXC-FALSE-ALERTS-2026-001` (ложные алерты Zabbix на LXC 700; документирует открытое расхождение по узлу размещения CT 700 — см. `00_Meta/CONFLICTS.md`),
 `PROXMOX-CEPH-NIC0-DIRECT-LINK-2026-001` (документирует миграцию cluster_network на nic0, настройку MTU 9000 и устранение инцидента с падением OSD из-за конфликтов в ceph.conf).
