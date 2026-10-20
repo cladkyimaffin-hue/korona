@@ -1,7 +1,7 @@
 ---
 schema_version: "1.0"
 status: "active"
-date_modified: 2026-10-18
+date_modified: 2026-10-20
 maintainer: "cladkyimaffin-hue"
 file_type: "environment_facts"
 source_commit: "0230c2500f92a066444d4135d3346725ab5f01cb"
@@ -59,7 +59,7 @@ confidence: "Факты сверены с текущими документам�
 
 ### VM 2001
 
-- Имя в Proxmox: **`Srv1c`** (VERIFIED: `qm config 2001` на `pve01`, 2026-10-18; то же в `/etc/pve/qemu-server/2001.conf`, 2026-10-15). Роль: сервер приложений 1С:ERP. Имя `win-1c-app-01` взято из команды первоначального клонирования (2026-09); сейчас в Proxmox оно не используется. Имя хоста внутри Windows не проверялось.
+- Имя в Proxmox: **`Srv1c`** (VERIFIED: `qm config 2001` на `pve01`, 2026-10-18; то же в `/etc/pve/qemu-server/2001.conf`, 2026-10-15). Роль: сервер приложений 1С:ERP. Имя `win-1c-app-01` взято из команды первоначального клонирования (2026-09); сейчас в Proxmox оно не используется. Имя хоста внутри Windows: **`SRV1C`** (VERIFIED: `qm guest cmd 2001 get-host-name` на `pve01`, 2026-10-20); совпадает с именем в Proxmox с точностью до регистра.
 - Создана из VM 2000 через **Full Clone**.
 - Storage: `ceph-fast`.
 - Диск `scsi0`: около 1 ТБ.
