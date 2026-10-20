@@ -72,11 +72,17 @@ confidence: "Факты сверены с текущими документам�
 - `TC.KRNN.RU`, терминальный сервер RDS.
 - RDS Licensing размещён на `AD.krnn.ru`, клиентские RDS CAL на момент документации не приобретены; льготный период не считать завершённым лицензированием.
 
+### VM 2004
+
+- Имя в Proxmox: **`PRINT`** (VERIFIED: `pvesh get /cluster/resources --type vm` на `pve01`, 2026-10-20).
+- Узел `pve01`, состояние `stopped`, не шаблон; 4 vCPU, RAM 4 GiB, диск 100 GiB.
+- Назначение и профильный документ отсутствуют (UNKNOWN); в `PROXMOX-AUTOSTART-STARTUP-ORDER-2026-001` не упомянута, `onboot` и `startup` не проверялись.
+
 ### LXC Zabbix
 
 - CTID: **700**.
 - IP: **`192.168.200.223/22`** (подтверждён администратором; расхождение закрыто, см. `00_Meta/CONFLICTS.md`, архив).
-- Узел: **`pve01`** по последнему выводу `pct config` (VERIFIED, `PROXMOX-AUTOSTART-STARTUP-ORDER-2026-001`, 2026-10-12); `ZABBIX-LXC-FALSE-ALERTS-2026-001` называет `pve02` — открытое расхождение в `00_Meta/CONFLICTS.md`.
+- Узел: **`pve01`** (VERIFIED: `pct list` и `pvesh get /cluster/resources --type vm` на `pve01`, 2026-10-20; `ZABBIX-LXC-FALSE-ALERTS-2026-001` ранее называл `pve02` — расхождение закрыто в `00_Meta/CONFLICTS.md`).
 - Debian 12, Zabbix Server 7.0 LTS.
 - Шаблон: LXC 1000.
 - Перед работой с CTID/IP всегда сверять `pct list` и текущую конфигурацию.
@@ -96,7 +102,7 @@ confidence: "Факты сверены с текущими документам�
 
 ## Стратегия распределения ВМ (рассматривается, не утверждена; 2026-10-07)
 
-- **Наблюдение (VERIFIED, со слов администратора):** все ВМ работают на `pve01` (занято ~200 GiB RAM из 250 GiB, включая 1С ERP); `pve02` практически свободен (~14 GiB RAM, Ceph и система).
+- **Наблюдение (VERIFIED, со слов администратора):** все ВМ работают на `pve01` (занято ~200 GiB RAM из 250 GiB, включая 1С ERP); `pve02` практически свободен (~14 GiB RAM, Ceph и система). Подтверждено `pvesh get /cluster/resources --type vm` 2026-10-20: все гости (ВМ 2000–2004, CT 600, 700, 1000) на `pve01`, на `pve02` гостей нет.
 - **Версия (INFERRED):** жалобы на скорость 1С ERP вызваны конкуренцией ВМ за ресурсы `pve01` («шумный сосед»). Замеров нагрузки CPU хоста и замеров во время жалоб нет; альтернативные причины (настройки SQL, диск, сеть Ceph, клиентская сторона) не исключены.
 - **Идея администратора:** оставить на `pve01` только ВМ 1С ERP, остальные перенести на `pve02`.
 - **Статус:** не утверждена, миграция не начата. План и проверки — в `PROXMOX-VM-MIGRATION-ISOLATION-2026-001`. Вопрос о переносе закрыт администратором 2026-10-15, основание не зафиксировано.
@@ -126,8 +132,8 @@ confidence: "Факты сверены с текущими документам�
 `PROXMOX-VM-MIGRATION-ISOLATION-2026-001` (план изоляции ВМ 1С ERP; гипотеза, не подтверждена замерами),
 `PROXMOX-AUTOSTART-STARTUP-ORDER-2026-001` (автозапуск и порядок старта ВМ и LXC на pve01),
 `PROXMOX-NETWORK-TOPOLOGY-2026-001` (физическая схема сети pve01/pve02),
-`PROXMOX-CEPH-PUBLIC-NETWORK-1C-2026-001` (тормоза 1С и public_network),
+`PROXMOX-CEPH-PUBLIC-NETWORK-1C-2026-001` (торможа 1С и public_network),
 `ZABBIX-STACK-INSTALL-2026-001`,
 `ZABBIX-PVE-API-MONITORING-2026-001`,
-`ZABBIX-LXC-FALSE-ALERTS-2026-001` (ложные алерты Zabbix на LXC 700; документирует открытое расхождение по узлу размещения CT 700 — см. `00_Meta/CONFLICTS.md`),
+`ZABBIX-LXC-FALSE-ALERTS-2026-001` (ложные алерты Zabbix на LXC 700; расхождения по IP и узлу размещения закрыты — см. `00_Meta/CONFLICTS.md`),
 `PROXMOX-CEPH-NIC0-DIRECT-LINK-2026-001` (документирует миграцию cluster_network на nic0, настройку MTU 9000 и устранение инцидента с падением OSD из-за конфликтов в ceph.conf).
