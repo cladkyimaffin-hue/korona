@@ -132,7 +132,7 @@ confidence: "Факты сверены с текущими документам�
 `PROXMOX-VM-MIGRATION-ISOLATION-2026-001` (план изоляции ВМ 1С ERP; гипотеза, не подтверждена замерами),
 `PROXMOX-AUTOSTART-STARTUP-ORDER-2026-001` (автозапуск и порядок старта ВМ и LXC на pve01),
 `PROXMOX-NETWORK-TOPOLOGY-2026-001` (физическая схема сети pve01/pve02),
-`PROXMOX-CEPH-PUBLIC-NETWORK-1C-2026-001` (торможа 1С и public_network),
+`PROXMOX-CEPH-PUBLIC-NETWORK-1C-2026-001` (тормоза 1С и public_network),
 `ZABBIX-STACK-INSTALL-2026-001`,
 `ZABBIX-PVE-API-MONITORING-2026-001`,
 `ZABBIX-LXC-FALSE-ALERTS-2026-001` (ложные алерты Zabbix на LXC 700; расхождения по IP и узлу размещения закрыты — см. `00_Meta/CONFLICTS.md`),
