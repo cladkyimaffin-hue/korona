@@ -29,6 +29,9 @@ confidence: "Команды перенесены из документов до�
 
 Правила:
 
+- **Блок с несколькими командами — перечень, а не скрипт.** Выполнять нужные
+  строки по одной. Только если в комментарии написано «по порядку», команды
+  блока выполняются подряд.
 - `<угловые скобки>` — плейсхолдер, подставить своё значение. Конкретные ID,
   имена и адреса брать из `AI-environment_facts-korona-proxmox.md` или из
   свежего вывода команд, не из этого файла.
@@ -95,7 +98,7 @@ pct set <CTID> -startup order=<N>,up=<секунды>
 ```
 
 ```bash
-# [W] Откат автозапуска и порядка — PROXMOX-AUTOSTART-STARTUP-ORDER-2026-001
+# [W] Откат автозапуска и порядка (варианты, не по порядку) — PROXMOX-AUTOSTART-STARTUP-ORDER-2026-001
 qm set <VMID> -delete startup
 pct set <CTID> -delete startup
 qm set <VMID> -onboot 0
@@ -128,7 +131,7 @@ qm set <VMID> --cores <N>
 ```
 
 ```bash
-# [W] Запуск и остановка. stop — жёсткая остановка, предпочитать shutdown
+# [W] Запуск и остановка (варианты, не по порядку). stop — жёсткая остановка, предпочитать shutdown
 # PROXMOX-VM-CLONE-2001-2026-001
 qm start <VMID>
 qm shutdown <VMID>
@@ -142,7 +145,7 @@ qm set <VMID> --delete ide2
 ```
 
 ```bash
-# [W] Включить cache=writeback для диска ВМ — PROXMOX-VM-CLONE-2001-2026-001
+# [W] Включить cache=writeback для диска ВМ (по порядку) — PROXMOX-VM-CLONE-2001-2026-001
 # Риск: при аварийном отключении узла возможна потеря несброшенных данных.
 # Не переносить на другие ВМ «по аналогии». Вступает в силу только после stop/start ВМ.
 # Взять текущую строку scsi0 из qm config и менять только нужные опции:
@@ -211,7 +214,7 @@ ceph config set mon cluster_network <подсеть/маска>
 ```
 
 ```bash
-# [W] Перезапуск OSD после сбоя (ceph orch в этом кластере не настроен)
+# [W] Перезапуск OSD после сбоя (по порядку; ceph orch в этом кластере не настроен)
 # Перезапуск вызывает peering и влияет на доступность — только в окне работ
 # PROXMOX-CEPH-NIC0-DIRECT-LINK-2026-001
 systemctl reset-failed ceph-osd@<N>
@@ -219,7 +222,7 @@ systemctl restart ceph-osd.target
 ```
 
 ```bash
-# [W] Репозитории для установки Ceph на PVE 9 / trixie (формат .sources, не .list) —
+# [W] Репозитории для установки Ceph на PVE 9 / trixie, формат .sources, не .list (по порядку)
 # PROXMOX-CEPH-OSD-POOLS-DEPLOYMENT-2026-001
 apt update
 apt full-upgrade -y
@@ -303,7 +306,7 @@ ip link set <интерфейс> mtu 9000
 ```
 
 ```bash
-# [W] Поднять интерфейс / применить /etc/network/interfaces без перезагрузки
+# [W] Поднять интерфейс / применить /etc/network/interfaces без перезагрузки (варианты, не по порядку)
 # ifreload -a применяет конфигурацию всех интерфейсов: при ошибке в файле можно потерять
 # связь с узлом — иметь консоль/IPMI. PROXMOX-CEPH-NIC0-DIRECT-LINK-2026-001
 ifup <интерфейс>
@@ -353,10 +356,15 @@ Start-Process msiexec.exe -ArgumentList '/i <буква_диска>:\guest-agent
 ```
 
 ```powershell
-# [W] Служба BalloonService с найденным путём; при ошибке пути — sc.exe delete и создать заново
+# [W] Создать и запустить службу BalloonService с найденным путём (по порядку)
 # PROXMOX-VM-MEMORY-BALLOON-2026-001
 sc.exe create BalloonService binPath= "<найденный_путь>\blnsvr.exe" start= auto
 Start-Service -Name BalloonService
+```
+
+```powershell
+# [W] Удалить службу BalloonService (например, чтобы пересоздать с верным путём).
+# Отдельная команда — не выполнять сразу после создания — PROXMOX-VM-MEMORY-BALLOON-2026-001
 sc.exe delete BalloonService
 ```
 
@@ -375,7 +383,8 @@ Remove-Partition -DiskNumber <N> -PartitionNumber <M> -Confirm:$false
 ```
 
 ```powershell
-# [W] Расширить C: на всё свободное место — PROXMOX-VM-CLONE-2001-2026-001
+# [W] Расширить C: на всё свободное место (после удаления раздела между C: и свободным местом)
+# PROXMOX-VM-CLONE-2001-2026-001
 Resize-Partition -DriveLetter C -Size (Get-PartitionSupportedSize -DriveLetter C).SizeMax
 ```
 
