@@ -91,7 +91,6 @@ for ct in 600 700; do echo "CT $ct:"; pct config $ct | grep -E '^(onboot|startup
 1. Проверка перезагрузкой `pve01` в плановое окно: порядок, паузы, готовность AD (DNS, Kerberos), SQL, Vaultwarden, Zabbix.
 2. Время остановки `Srv1c` (SQL Server) и `AD` при перезагрузке узла: нужен ли параметр `down`.
 3. Пересмотр порядка запуска после возможной миграции ВМ на `pve02`.
-4. Имя ВМ 2001 в Proxmox — `Srv1c`, в документации — `win-1c-app-01` (см. `00_Meta/CONFLICTS.md`).
 
 ## ⛔ Don't repeat
 - Пустой вывод `qm config <VMID> | grep onboot` означает, что автозапуск выключен: параметр не задан.
