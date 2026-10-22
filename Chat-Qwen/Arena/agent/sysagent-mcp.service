@@ -1,0 +1,17 @@
+[Unit]
+Description=sysagent MCP-сервер (stdio, для локального клиента)
+# Это socket-активируемый/stdio-сервис: обычно его запускает MCP-клиент как
+# дочерний процесс. Юнит нужен, только если вы оборачиваете его в socat/ssh.
+
+[Service]
+Type=simple
+User=sysagent
+Group=systemd-journal
+WorkingDirectory=/opt/sysagent
+ExecStart=/usr/bin/python3 -m sysagent.mcp_server --mode readonly
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=

@@ -1,0 +1,47 @@
+[Unit]
+Description=sysagentd — агент администрирования Linux
+Documentation=https://example.local/sysagentd
+After=systemd-journald.service
+# Стартуем только когда есть журнал
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/sysagentd daemon --mode readonly --socket /run/sysagentd/sysagentd.sock
+Restart=always
+RestartSec=5
+
+# --- запуск от непривилегированного пользователя --------------------------
+User=sysagent
+Group=sysagent
+# читать системный журнал:
+SupplementaryGroups=systemd-journal
+RuntimeDirectory=sysagentd            # /run/sysagentd, удаляется при остановке
+RuntimeDirectoryMode=0750
+StateDirectory=sysagentd              # /var/lib/sysagentd
+LogsDirectory=sysagentd               # /var/log/sysagentd
+Environment=SYSAGENTD_MODE=readonly
+
+# --- песочница systemd: демон почти ничего не может ------------------------
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=false
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+# Явно разрешаем только то, что нужно
+ReadWritePaths=/var/lib/sysagentd /var/log/sysagentd
+
+[Install]
+WantedBy=multi-user.target

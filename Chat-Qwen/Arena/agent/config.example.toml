@@ -1,0 +1,20 @@
+# ~/.config/sysagent/config.toml
+# cp config.example.toml ~/.config/sysagent/config.toml
+
+[llm]
+# Любой OpenAI-совместимый эндпоинт:
+#   OpenAI         https://api.openai.com/v1
+#   OpenRouter     https://openrouter.ai/api/v1
+#   Ollama (локально, без облака) http://127.0.0.1:11434/v1
+base_url = "https://api.openai.com/v1"
+model = "gpt-4o-mini"
+api_key_env = "OPENAI_API_KEY"
+temperature = 0.1
+max_tool_rounds = 8
+
+[policy]
+mode = "ask"               # readonly | ask | auto
+allow_dangerous = false    # reboot/rm/useradd/iptables — только true, если понимаете риск
+audit_log = "~/.local/state/sysagent/audit.jsonl"
+command_timeout = 20
+max_output_bytes = 20000

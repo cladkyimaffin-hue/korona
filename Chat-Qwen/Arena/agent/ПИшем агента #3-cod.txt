@@ -1,0 +1,4097 @@
+Diff
+
+Branch
+Unified
+Split
+
+
+sysagent/.gitignore
++15
+# Собранные бинарники и артефакты запуска (только в корне sysagent/)
+/build/
+/sysagentd
+*.sock
+*.jsonl
+# Реальные конфиги и секреты (хранятся только на целевой ВМ)
+/config.json
+/config.jsonc
+*.key
+*.pem
+*.secret
+*.token
+.env
+.env.*
+
+sysagent/cmd/sysagentd/main.go
++297
+// Единая точка входа sysagentd:
+//   - "sysagentd" (без аргументов)      — интерактивная консоль управления и тестирования;
+//   - "sysagentd start|stop|restart|status" — управление фоновым демоном;
+//   - "sysagentd daemon ..."            — внутренний режим фонового процесса;
+//   - "sysagentd <операция> ..."        — разовый вызов операции из командной строки.
+package main
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"log"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
+	"sysagent/internal/config"
+	"sysagent/internal/core"
+	"sysagent/internal/ipc"
+	"sysagent/internal/modules/local"
+)
+
+func main() {
+	os.Exit(run(os.Args[1:]))
+}
+
+// buildEngine собирает ядро и регистрирует все подключённые модули функций.
+// Новые модули (local, proxmox, linuxssh, windows) подключаются именно здесь.
+func buildEngine(cfg config.Config) (*core.Engine, error) {
+	engine, err := core.NewEngine(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if err := engine.RegisterModule(local.New()); err != nil {
+		return nil, err
+	}
+	return engine, nil
+}
+
+func run(argv []string) int {
+	// Запуск без аргументов открывает интерактивную консоль управления.
+	if len(argv) == 0 {
+		cfg, err := config.Load("")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ошибка конфигурации: %v\n", err)
+			return 1
+		}
+		return runInteractiveConsole(cfg, "")
+	}
+
+	switch argv[0] {
+	case "-h", "--help", "help":
+		printUsage()
+		return 0
+	case "console", "shell":
+		return runConsoleCmd(argv[1:])
+	case "start", "stop", "restart", "status":
+		return runServiceCmd(argv[0], argv[1:])
+	case "audit":
+		return runAuditCmd(argv[1:])
+	case "daemon":
+		return runDaemonCmd(argv[1:])
+	default:
+		return runToolCmd(argv[0], argv[1:])
+	}
+}
+
+func runConsoleCmd(args []string) int {
+	fs := flag.NewFlagSet("console", flag.ContinueOnError)
+	cfgPath := fs.String("config", "", "путь к файлу конфигурации")
+	socket := fs.String("socket", "", "путь к Unix-сокету демона")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ошибка конфигурации: %v\n", err)
+		return 1
+	}
+	if *socket != "" {
+		cfg.SocketPath = *socket
+	}
+	return runInteractiveConsole(cfg, *cfgPath)
+}
+
+func runServiceCmd(action string, args []string) int {
+	fs := flag.NewFlagSet(action, flag.ContinueOnError)
+	cfgPath := fs.String("config", "", "путь к файлу конфигурации")
+	socket := fs.String("socket", "", "переопределить путь к Unix-сокету")
+	mode := fs.String("mode", "", "режим политики при запуске: readonly | ask | auto")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ошибка конфигурации: %v\n", err)
+		return 1
+	}
+	if *socket != "" {
+		cfg.SocketPath = *socket
+	}
+	if *mode != "" {
+		cfg.Policy.Mode = *mode
+	}
+	if err := cfg.Validate(); err != nil {
+		fmt.Fprintf(os.Stderr, "некорректные параметры: %v\n", err)
+		return 1
+	}
+	return handleServiceControl(action, cfg, *cfgPath)
+}
+
+func runAuditCmd(args []string) int {
+	fs := flag.NewFlagSet("audit", flag.ContinueOnError)
+	cfgPath := fs.String("config", "", "путь к файлу конфигурации")
+	lines := fs.Int("n", 15, "количество последних записей")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ошибка конфигурации: %v\n", err)
+		return 1
+	}
+	printAuditTail(cfg.Audit.Path, *lines)
+	return 0
+}
+
+func runDaemonCmd(args []string) int {
+	fs := flag.NewFlagSet("daemon", flag.ContinueOnError)
+	cfgPath := fs.String("config", "", "путь к файлу конфигурации (.jsonc / .json)")
+	socket := fs.String("socket", "", "переопределить путь к Unix-сокету")
+	mode := fs.String("mode", "", "переопределить режим политики: readonly | ask | auto")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ошибка конфигурации: %v\n", err)
+		return 1
+	}
+	if *socket != "" {
+		cfg.SocketPath = *socket
+	}
+	if *mode != "" {
+		cfg.Policy.Mode = *mode
+	}
+	if err := cfg.Validate(); err != nil {
+		fmt.Fprintf(os.Stderr, "некорректные параметры запуска: %v\n", err)
+		return 1
+	}
+
+	engine, err := buildEngine(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ошибка инициализации ядра: %v\n", err)
+		return 1
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	if err := ipc.ServeUnix(ctx, cfg.SocketPath, engine); err != nil {
+		fmt.Fprintf(os.Stderr, "ошибка работы демона: %v\n", err)
+		return 1
+	}
+	log.Println("sysagentd штатно остановлен")
+	return 0
+}
+
+type kvFlags map[string]string
+
+func (kv kvFlags) String() string { return "" }
+
+func (kv kvFlags) Set(val string) error {
+	idx := strings.IndexByte(val, '=')
+	if idx <= 0 {
+		return fmt.Errorf("ожидается формат ключ=значение, получено %q", val)
+	}
+	k := strings.TrimSpace(val[:idx])
+	v := strings.TrimSpace(val[idx+1:])
+	kv[k] = v
+	return nil
+}
+
+func runToolCmd(toolName string, args []string) int {
+	fs := flag.NewFlagSet(toolName, flag.ContinueOnError)
+	cfgPath := fs.String("config", "", "путь к файлу конфигурации")
+	socket := fs.String("socket", "", "путь к Unix-сокету демона")
+	local := fs.Bool("local", false, "выполнить напрямую без обращения к демону")
+	yes := fs.Bool("yes", false, "подтвердить операцию записи без интерактивного вопроса")
+	kv := make(kvFlags)
+	fs.Var(kv, "arg", "параметр инструмента в виде ключ=значение (можно указывать несколько раз)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ошибка конфигурации: %v\n", err)
+		return 1
+	}
+	if *socket != "" {
+		cfg.SocketPath = *socket
+	}
+
+	req := core.Request{
+		Tool:     toolName,
+		Args:     kv,
+		Approved: *yes,
+		Caller:   "cli",
+	}
+
+	dispatch := func(r core.Request) (core.Response, error) {
+		if *local {
+			r.Caller = "cli-local"
+			engine, buildErr := buildEngine(cfg)
+			if buildErr != nil {
+				return core.Response{}, buildErr
+			}
+			return engine.Execute(context.Background(), r), nil
+		}
+		timeout := time.Duration(cfg.Policy.CommandTimeoutSec+5) * time.Second
+		return ipc.CallUnix(cfg.SocketPath, r, timeout)
+	}
+
+	resp, err := dispatch(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "демон недоступен (%v)\n", err)
+		fmt.Fprintln(os.Stderr, "запустите 'sysagentd start' (или 'sysagentd') либо добавьте '--local'")
+		return 1
+	}
+
+	if !resp.OK && resp.NeedsApproval {
+		if promptConfirmation(resp.Tool, string(resp.Risk), resp.Error) {
+			req.Approved = true
+			resp, err = dispatch(req)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "ошибка повторного вызова: %v\n", err)
+				return 1
+			}
+		} else {
+			fmt.Fprintln(os.Stderr, "операция отменена пользователем")
+			return 1
+		}
+	}
+
+	if !resp.OK {
+		fmt.Fprintf(os.Stderr, "отказ / ошибка [%s]: %s\n", resp.Tool, resp.Error)
+		return 1
+	}
+
+	var pretty any
+	if err := json.Unmarshal(resp.Data, &pretty); err != nil {
+		fmt.Println(string(resp.Data))
+		return 0
+	}
+	out, _ := json.MarshalIndent(pretty, "", "  ")
+	fmt.Println(string(out))
+	return 0
+}
+
+func promptConfirmation(toolName, risk, reason string) bool {
+	fmt.Fprintf(os.Stderr, "\n⚠️  Требуется подтверждение\n   Операция: %s (риск: %s)\n   Причина:  %s\n   Выполнить? [y/N]: ",
+		toolName, risk, reason)
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return false
+	}
+	ans := strings.ToLower(strings.TrimSpace(line))
+	return ans == "y" || ans == "yes" || ans == "д" || ans == "да"
+}
+
+func printUsage() {
+	fmt.Print(`sysagentd — модульный агент диагностики инфраструктуры
+
+Интерактивный режим (меню + командная строка):
+  sysagentd
+
+Управление службой демона:
+  sysagentd start     — запустить демона в фоне
+  sysagentd stop      — штатно остановить демона
+  sysagentd restart   — перезапустить демона
+  sysagentd status    — показать состояние, PID, память RSS и режим
+  sysagentd audit     — показать последние записи журнала аудита
+
+Прямой вызов операций:
+  sysagentd ping
+  sysagentd version
+  sysagentd tools
+  sysagentd <операция> [--arg ключ=значение ...] [--local]
+`)
+}
+
+sysagent/cmd/sysagentd/repl.go
++645
+package main
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+	"unicode"
+
+	"sysagent/internal/config"
+	"sysagent/internal/core"
+	"sysagent/internal/ipc"
+	"sysagent/internal/llm"
+)
+
+func runInteractiveConsole(cfg config.Config, cfgPath string) int {
+	router, routerErr := llm.NewRouter("")
+
+	stInit := ipc.GetStatus(cfg)
+	if stInit.Running && stInit.PolicyMode != "" {
+		cfg.Policy.Mode = stInit.PolicyMode
+	}
+
+	printConsoleHeader()
+	printStatusSummary(stInit)
+	printLLMShortLine(router, routerErr)
+	printConsoleMenu()
+
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		up, _ := ipc.IsRunningFast(cfg)
+		stateDot := "○"
+		if up {
+			stateDot = "●"
+		}
+		fmt.Printf("\nsysagent [%s | %s]> ", stateDot, cfg.Policy.Mode)
+
+		rawLine, err := reader.ReadString('\n')
+		if err != nil && len(rawLine) == 0 {
+			fmt.Println()
+			return 0
+		}
+
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			if err == io.EOF {
+				fmt.Println()
+				return 0
+			}
+			continue
+		}
+
+		// Быстрые цифровые клавиши меню (работают в любой раскладке).
+		switch line {
+		case "1":
+			line = "start"
+		case "2":
+			line = "stop"
+		case "3":
+			line = "restart"
+		case "4":
+			line = "status"
+		case "5":
+			line = "ping"
+		case "6":
+			line = "tools"
+		case "7":
+			line = "audit"
+		case "8":
+			line = "model"
+		case "9":
+			line = "mode"
+		case "0":
+			line = "exit"
+		}
+
+		tokens, splitErr := splitConsoleLine(line)
+		cmd := ""
+		var rest []string
+		if splitErr == nil && len(tokens) > 0 {
+			cmd = tokens[0]
+			rest = tokens[1:]
+		} else {
+			fields := strings.Fields(line)
+			if len(fields) > 0 {
+				cmd = fields[0]
+				rest = fields[1:]
+			}
+		}
+
+		switch cmd {
+		case "exit", "quit", "q":
+			stNow := ipc.GetStatus(cfg)
+			if stNow.Running {
+				fmt.Printf("Выход из консоли. Демон продолжает работать в фоне (pid=%d).\n", stNow.PID)
+			} else {
+				fmt.Println("Выход из консоли (демон остановлен).")
+			}
+			return 0
+
+		case "help", "h", "?":
+			printConsoleMenu()
+
+		case "start":
+			_ = handleServiceControl("start", cfg, cfgPath)
+
+		case "stop":
+			_ = handleServiceControl("stop", cfg, cfgPath)
+
+		case "restart", "reload":
+			_ = handleServiceControl("restart", cfg, cfgPath)
+
+		case "status":
+			st := ipc.GetStatus(cfg)
+			printStatusSummary(st)
+			printLLMShortLine(router, routerErr)
+
+		case "audit":
+			printAuditTail(cfg.Audit.Path, 10)
+
+		case "log", "daemon-log":
+			printLogTail(ipc.DaemonLogPath(cfg), 15)
+
+		case "model", "models", "/model":
+			handleModelMenu(router, routerErr, reader)
+
+		case "mode", "/mode":
+			handleToggleMode(&cfg, cfgPath)
+
+		case "reset", "clear", "/reset":
+			if router != nil {
+				router.ResetHistory()
+				fmt.Println("✓ История диалога с ИИ очищена.")
+			}
+
+		default:
+			dispatchSmartInput(&cfg, cfgPath, router, routerErr, reader, line, cmd, rest)
+		}
+
+		if err == io.EOF {
+			fmt.Println()
+			return 0
+		}
+	}
+}
+
+// dispatchSmartInput различает:
+//  1) попытку прямой опасной shell-команды -> отправляет в ядро для жёсткого отказа и записи в audit.jsonl;
+//  2) точный вызов зарегистрированного инструмента (например "local.summary" или "netping host=www.ru") -> вызывает напрямую;
+//  3) любой свободный текст/вопрос на естественном языке -> передаёт в каскадный ИИ-роутер (internal/llm).
+func dispatchSmartInput(
+	cfg *config.Config,
+	cfgPath string,
+	router *llm.Router,
+	routerErr error,
+	reader *bufio.Reader,
+	fullLine, cmd string,
+	rest []string,
+) {
+	if looksLikeRawDanger(fullLine) {
+		execConsoleTool(*cfg, reader, fullLine, cmd, rest)
+		return
+	}
+
+	specs, daemonUp := fetchDaemonSpecs(*cfg)
+	if daemonUp && matchesRegisteredTool(specs, cmd, rest) {
+		execConsoleTool(*cfg, reader, fullLine, cmd, rest)
+		return
+	}
+
+	// Свободный вопрос или поручение на естественном языке -> ИИ-ассистент.
+	handleLLMChat(cfg, cfgPath, router, routerErr, reader, fullLine)
+}
+
+func handleLLMChat(
+	cfg *config.Config,
+	cfgPath string,
+	router *llm.Router,
+	routerErr error,
+	reader *bufio.Reader,
+	question string,
+) {
+	if routerErr != nil || router == nil {
+		fmt.Fprintf(os.Stderr, "✗ Модуль ИИ не инициализирован: %v\n", routerErr)
+		return
+	}
+
+	// Если демон ещё не запущен — автоматически поднимаем его, чтобы у ИИ был доступ к диагностике.
+	up, _ := ipc.IsRunningFast(*cfg)
+	if !up {
+		fmt.Println("• Демон остановлен — запускаю его для доступа к инструментам диагностики...")
+		if _, _, err := ipc.StartDaemon(*cfg, cfgPath); err != nil {
+			fmt.Fprintf(os.Stderr, "✗ Не удалось запустить демона: %v\n", err)
+			return
+		}
+	}
+
+	specs, ok := fetchDaemonSpecs(*cfg)
+	if !ok {
+		fmt.Fprintln(os.Stderr, "✗ Не удалось получить список инструментов от демона.")
+		return
+	}
+
+	timeout := time.Duration(cfg.Policy.CommandTimeoutSec+5) * time.Second
+
+	execViaDaemon := func(_ context.Context, toolName string, args map[string]string) (string, error) {
+		req := core.Request{
+			Tool:   toolName,
+			Args:   args,
+			Caller: "llm",
+		}
+		resp, err := ipc.CallUnix(cfg.SocketPath, req, timeout)
+		if err != nil {
+			return "", err
+		}
+
+		if !resp.OK && resp.NeedsApproval {
+			if promptConfirmationReader(reader, resp.Tool, string(resp.Risk), formatArgsInline(args), resp.Error) {
+				req.Approved = true
+				resp, err = ipc.CallUnix(cfg.SocketPath, req, timeout)
+				if err != nil {
+					return "", err
+				}
+			} else {
+				fmt.Println("  • Действие отклонено администратором.")
+				return `{"ok":false,"approved":false,"note":"Отклонено администратором. Не повторяй вызов, дай безопасную команду для ручного выполнения."}`, nil
+			}
+		}
+
+		if !resp.OK {
+			return fmt.Sprintf(`{"ok":false,"policy_mode":%q,"error":%q}`, cfg.Policy.Mode, resp.Error), nil
+		}
+		return string(resp.Data), nil
+	}
+
+	fmt.Println("⏳ Запрос к ИИ...")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	answer, prof, err := router.Ask(ctx, question, specs, execViaDaemon, func(ev string) {
+		fmt.Println(" ", ev)
+	})
+	if errors.Is(err, llm.ErrNoKeys) {
+		printNoKeysHelp(router.ConfigPath())
+		return
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "✗ Ошибка ИИ [%s]: %v\n", prof.ID, err)
+		return
+	}
+
+	fmt.Printf("\n🤖 [%s]\n%s\n", prof.Title, answer)
+}
+
+func handleModelMenu(router *llm.Router, routerErr error, reader *bufio.Reader) {
+	if routerErr != nil || router == nil {
+		fmt.Fprintf(os.Stderr, "✗ Ошибка конфигурации ИИ: %v\n", routerErr)
+		return
+	}
+	_ = router.Reload()
+	active, readyCount, items := router.Status()
+
+	fmt.Printf("\n--- Профили ИИ (%s) ---\n", router.ConfigPath())
+	autoMark := " "
+	if active == "auto" {
+		autoMark = "*"
+	}
+	fmt.Printf("  [0] [%s] auto — Автоматический каскад (объединяет лимиты всех готовых моделей)\n", autoMark)
+	for i, it := range items {
+		mark := " "
+		if active == it.ID {
+			mark = "*"
+		}
+		keyBadge := "нет ключа"
+		if it.HasKey {
+			keyBadge = "ключ OK"
+		}
+		coolInfo := ""
+		if it.CoolingSecRem > 0 {
+			coolInfo = fmt.Sprintf(", пауза %dс", it.CoolingSecRem)
+		}
+		fmt.Printf("  [%d] [%s] %-17s — %s [%s%s]\n", i+1, mark, it.ID, it.Title, keyBadge, coolInfo)
+	}
+	if readyCount == 0 {
+		printNoKeysHelp(router.ConfigPath())
+		return
+	}
+	fmt.Print("\nВведите номер профиля (0 = auto, Enter = оставить как есть): ")
+	choiceLine, _ := reader.ReadString('\n')
+	choiceLine = strings.TrimSpace(choiceLine)
+	if choiceLine == "" {
+		return
+	}
+	if choiceLine == "0" || choiceLine == "auto" {
+		_ = router.SetActiveProfile("auto")
+		fmt.Println("✓ Включён режим 'auto' (автоматический каскад моделей).")
+		return
+	}
+	if n, err := strconv.Atoi(choiceLine); err == nil && n >= 1 && n <= len(items) {
+		picked := items[n-1]
+		_ = router.SetActiveProfile(picked.ID)
+		fmt.Printf("✓ Выбрана основная модель: %s (%s)\n", picked.Title, picked.ID)
+		return
+	}
+	if err := router.SetActiveProfile(choiceLine); err == nil {
+		fmt.Printf("✓ Выбрана основная модель: %s\n", choiceLine)
+		return
+	}
+	fmt.Println("• Профиль не изменён.")
+}
+
+func handleToggleMode(cfg *config.Config, cfgPath string) {
+	next := "ask"
+	desc := "чтение — автоматически, изменения — строго с вашим подтверждением [y/N]"
+	if cfg.Policy.Mode == "ask" {
+		next = "readonly"
+		desc = "строго только чтение (любые изменения заблокированы политикой)"
+	}
+	cfg.Policy.Mode = next
+
+	up, _ := ipc.IsRunningFast(*cfg)
+	if up {
+		_, st, err := ipc.RestartDaemon(*cfg, cfgPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "✗ Ошибка перезапуска демона в новом режиме: %v\n", err)
+			return
+		}
+		fmt.Printf("✓ Режим переключён на '%s' (%s; новый pid=%d)\n", st.PolicyMode, desc, st.PID)
+		return
+	}
+	fmt.Printf("✓ Режим для следующего запуска переключён на '%s' (%s)\n", next, desc)
+}
+
+func fetchDaemonSpecs(cfg config.Config) ([]core.ToolSpec, bool) {
+	resp, err := ipc.CallUnix(cfg.SocketPath, core.Request{
+		Tool:   "core.tools",
+		Caller: "status",
+	}, 3*time.Second)
+	if err != nil || !resp.OK {
+		return nil, false
+	}
+	var payload struct {
+		Tools []core.ToolSpec `json:"tools"`
+	}
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+		return nil, false
+	}
+	return payload.Tools, true
+}
+
+func matchesRegisteredTool(specs []core.ToolSpec, cmd string, rest []string) bool {
+	found := false
+	for _, sp := range specs {
+		short := sp.Name
+		if idx := strings.IndexByte(short, '.'); idx >= 0 {
+			short = short[idx+1:]
+		}
+		if cmd == sp.Name || cmd == short {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return false
+	}
+	for _, arg := range rest {
+		if strings.IndexByte(arg, '=') <= 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func looksLikeRawDanger(line string) bool {
+	low := strings.ToLower(strings.TrimSpace(line))
+	prefixes := []string{
+		"rm ", "mkfs", "dd if=", "chmod -r 777", ":(){", "shutdown", "reboot", "poweroff",
+	}
+	for _, p := range prefixes {
+		if strings.HasPrefix(low, p) {
+			return true
+		}
+	}
+	return false
+}
+
+func handleServiceControl(action string, cfg config.Config, cfgPath string) int {
+	switch action {
+	case "start":
+		st, already, err := ipc.StartDaemon(cfg, cfgPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "✗ Ошибка запуска: %v\n", err)
+			return 1
+		}
+		if already {
+			fmt.Printf("• Демон уже запущен (pid=%d, uptime=%s, память=%.1f МБ)\n",
+				st.PID, st.Uptime, float64(st.RSSKB)/1024.0)
+			return 0
+		}
+		fmt.Printf("✓ Демон запущен (pid=%d, режим=%s, память=%.1f МБ)\n",
+			st.PID, st.PolicyMode, float64(st.RSSKB)/1024.0)
+		return 0
+
+	case "stop":
+		pid, wasRunning, err := ipc.StopDaemon(cfg)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "✗ Ошибка остановки: %v\n", err)
+			return 1
+		}
+		if !wasRunning {
+			fmt.Println("• Демон уже остановлен.")
+			return 0
+		}
+		fmt.Printf("✓ Демон штатно остановлен (pid=%d)\n", pid)
+		return 0
+
+	case "restart":
+		oldPID, st, err := ipc.RestartDaemon(cfg, cfgPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "✗ Ошибка перезапуска: %v\n", err)
+			return 1
+		}
+		if oldPID > 0 {
+			fmt.Printf("✓ Старый процесс остановлен (pid=%d)\n", oldPID)
+		}
+		fmt.Printf("✓ Демон перезапущен (новый pid=%d, режим=%s, память=%.1f МБ)\n",
+			st.PID, st.PolicyMode, float64(st.RSSKB)/1024.0)
+		return 0
+
+	case "status":
+		st := ipc.GetStatus(cfg)
+		printStatusSummary(st)
+		if !st.Running {
+			return 3
+		}
+		return 0
+	}
+	return 2
+}
+
+func execConsoleTool(cfg config.Config, reader *bufio.Reader, fullLine, toolName string, rawArgs []string) {
+	kv := make(map[string]string)
+	for _, item := range rawArgs {
+		idx := strings.IndexByte(item, '=')
+		if idx <= 0 {
+			toolName = fullLine
+			kv = nil
+			break
+		}
+		kv[strings.TrimSpace(item[:idx])] = strings.TrimSpace(item[idx+1:])
+	}
+
+	req := core.Request{
+		Tool:   toolName,
+		Args:   kv,
+		Caller: "console",
+	}
+
+	timeout := time.Duration(cfg.Policy.CommandTimeoutSec+5) * time.Second
+	resp, err := ipc.CallUnix(cfg.SocketPath, req, timeout)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "✗ Демон не запущен (%v). Введите '1' или 'start', чтобы запустить его.\n", err)
+		return
+	}
+
+	if !resp.OK && resp.NeedsApproval {
+		if promptConfirmationReader(reader, resp.Tool, string(resp.Risk), formatArgsInline(kv), resp.Error) {
+			req.Approved = true
+			resp, err = ipc.CallUnix(cfg.SocketPath, req, timeout)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "✗ Ошибка повторного запроса: %v\n", err)
+				return
+			}
+		} else {
+			fmt.Println("• Операция отменена.")
+			return
+		}
+	}
+
+	if !resp.OK {
+		fmt.Fprintf(os.Stderr, "✗ Отказ политики [%s]: %s\n", resp.Tool, resp.Error)
+		return
+	}
+
+	var pretty any
+	if err := json.Unmarshal(resp.Data, &pretty); err != nil {
+		fmt.Println(string(resp.Data))
+		return
+	}
+	out, _ := json.MarshalIndent(pretty, "", "  ")
+	fmt.Println(string(out))
+}
+
+func promptConfirmationReader(reader *bufio.Reader, toolName, risk, argsStr, reason string) bool {
+	fmt.Printf("\n⚠️  Требуется подтверждение\n   Операция:  %s (риск: %s)\n", toolName, risk)
+	if argsStr != "" {
+		fmt.Printf("   Параметры: %s\n", argsStr)
+	}
+	fmt.Printf("   Причина:   %s\n   Выполнить? [y/N]: ", reason)
+
+	line, err := reader.ReadString('\n')
+	if err != nil && len(line) == 0 {
+		return false
+	}
+	ans := strings.ToLower(strings.TrimSpace(line))
+	return ans == "y" || ans == "yes" || ans == "д" || ans == "да"
+}
+
+func formatArgsInline(args map[string]string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(args))
+	for k, v := range args {
+		parts = append(parts, k+"="+v)
+	}
+	return strings.Join(parts, ", ")
+}
+
+func printConsoleHeader() {
+	fmt.Printf("============================================================\n")
+	fmt.Printf("  sysagentd v%s — интерактивная ИИ-консоль управления\n", core.Version)
+	fmt.Printf("============================================================\n")
+}
+
+func printLLMShortLine(router *llm.Router, routerErr error) {
+	if routerErr != nil || router == nil {
+		fmt.Printf("  ИИ-модуль:   ошибка (%v)\n", routerErr)
+		return
+	}
+	_ = router.Reload()
+	active, ready, items := router.Status()
+	fmt.Printf("  ИИ-модели:   режим=%s, готово профилей=%d/%d (%s)\n",
+		active, ready, len(items), router.ConfigPath())
+	fmt.Printf("  Промпт ИИ:   %s (перечитывается на лету)\n", router.PromptPath())
+}
+
+func printNoKeysHelp(path string) {
+	fmt.Printf(`
+ℹ️  Бесплатные ключи ИИ ещё не добавлены!
+    1. Откройте защищённый файл (права 0600):
+         nano %s
+    2. Вставьте хотя бы один ключ ("github" и/или "mistral") и сохраните (Ctrl+O, Enter, Ctrl+X).
+    3. Перезапускать демона НЕ нужно — прямо здесь напишите вопрос снова!
+`, path)
+}
+
+func printStatusSummary(st ipc.DaemonStatus) {
+	if st.Running && st.SocketOK {
+		fmt.Printf("  Состояние:   РАБОТАЕТ (●)\n")
+		fmt.Printf("  PID:         %d\n", st.PID)
+		fmt.Printf("  Uptime:      %s\n", st.Uptime)
+		fmt.Printf("  Память RSS:  %.2f МБ (%d КБ)\n", float64(st.RSSKB)/1024.0, st.RSSKB)
+		fmt.Printf("  Режим ядра:  %s\n", st.PolicyMode)
+		fmt.Printf("  Сокет:       %s\n", st.SocketPath)
+		fmt.Printf("  Лог демона:  %s\n", st.DaemonLog)
+		fmt.Printf("  Аудит:       %s\n", st.AuditPath)
+	} else {
+		fmt.Printf("  Состояние:   ОСТАНОВЛЕН (○)\n")
+		fmt.Printf("  Режим ядра:  %s\n", st.PolicyMode)
+		fmt.Printf("  Сокет:       %s\n", st.SocketPath)
+		fmt.Printf("  Аудит:       %s\n", st.AuditPath)
+	}
+}
+
+func printConsoleMenu() {
+	fmt.Print(`
+Управление и переключение:
+  [1] start      [2] stop       [3] restart    [4] status
+  [5] ping       [6] tools      [7] audit      [8] model (выбор ИИ)
+  [9] mode (readonly <-> ask)   [0] exit       [reset] очистить чат
+
+💬 Диалог с агентом — просто пишите вопрос по-русски!
+   Примеры: "как себя чувствует сервер?"
+            "проверь пинг до www.ru и нет ли упавших служб"
+            "перезапусти службу cron"
+`)
+}
+
+func printAuditTail(path string, n int) {
+	lines := ipc.ReadTailLines(path, n)
+	if len(lines) == 0 {
+		fmt.Printf("Журнал аудита пока пуст (%s)\n", path)
+		return
+	}
+	fmt.Printf("--- Последние записи аудита (%s) ---\n", path)
+	for _, ln := range lines {
+		fmt.Println(" ", ln)
+	}
+}
+
+func printLogTail(path string, n int) {
+	lines := ipc.ReadTailLines(path, n)
+	if len(lines) == 0 {
+		fmt.Printf("Лог демона пока пуст (%s)\n", path)
+		return
+	}
+	fmt.Printf("--- Лог демона (%s) ---\n", path)
+	for _, ln := range lines {
+		fmt.Println(" ", ln)
+	}
+}
+
+func splitConsoleLine(input string) ([]string, error) {
+	var tokens []string
+	var buf strings.Builder
+	var quote rune
+	inToken := false
+
+	for _, r := range input {
+		switch {
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			} else {
+				buf.WriteRune(r)
+			}
+		case r == '"' || r == '\'':
+			quote = r
+			inToken = true
+		case unicode.IsSpace(r):
+			if inToken {
+				tokens = append(tokens, buf.String())
+				buf.Reset()
+				inToken = false
+			}
+		default:
+			buf.WriteRune(r)
+			inToken = true
+		}
+	}
+	if quote != 0 {
+		return nil, io.ErrUnexpectedEOF
+	}
+	if inToken {
+		tokens = append(tokens, buf.String())
+	}
+	return tokens, nil
+}
+
+sysagent/configs/config.example.jsonc
++30
+{
+  // Путь к Unix-сокету локального демона sysagentd (права 0660)
+  "socket_path": "/run/sysagentd/sysagentd.sock",
+
+  // Политика разрешений: проверяется ядром ДО вызова любого инструмента
+  "policy": {
+    // Режим работы:
+    //   "readonly" — разрешены только операции чтения (этап 1 по умолчанию)
+    //   "ask"      — операции записи требуют явного подтверждения человека
+    //   "auto"     — операции записи выполняются без подтверждения
+    "mode": "readonly",
+
+    // Разрешать ли разрушающие/опасные операции (всегда false в штатной работе)
+    "allow_dangerous": false,
+
+    // Список инструментов, принудительно отключённых через конфиг без пересборки
+    "disabled_tools": [],
+
+    // Максимальное время выполнения одной операции, секунд
+    "command_timeout_sec": 20,
+
+    // Лимит размера текстового вывода одной операции, байт
+    "max_output_bytes": 20000
+  },
+
+  // Журнал аудита всех разрешённых и отклонённых вызовов (формат JSON Lines)
+  "audit": {
+    "path": "/var/log/sysagentd/audit.jsonl"
+  }
+}
+
+sysagent/go.mod
++3
+module sysagent
+go 1.24
+
+sysagent/internal/config/config.go
++211
+// Пакет config отвечает за чтение, разбор и валидацию конфигурации агента.
+// Поддерживается формат JSON с однострочными комментариями (// и #),
+// чтобы не тянуть внешние зависимости ради конфигурационного файла.
+package config
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+const (
+	ModeReadOnly = "readonly"
+	ModeAsk      = "ask"
+	ModeAuto     = "auto"
+
+	DefaultSocketPath = "/run/sysagentd/sysagentd.sock"
+	DefaultAuditPath  = "/var/log/sysagentd/audit.jsonl"
+)
+
+// PolicyConfig задаёт ограничения безопасности ядра.
+type PolicyConfig struct {
+	Mode              string   `json:"mode"`
+	AllowDangerous    bool     `json:"allow_dangerous"`
+	DisabledTools     []string `json:"disabled_tools"`
+	CommandTimeoutSec int      `json:"command_timeout_sec"`
+	MaxOutputBytes    int      `json:"max_output_bytes"`
+}
+
+// AuditConfig задаёт параметры журнала аудита.
+type AuditConfig struct {
+	Path string `json:"path"`
+}
+
+// Config объединяет все настройки ядра sysagentd.
+type Config struct {
+	SocketPath string       `json:"socket_path"`
+	Policy     PolicyConfig `json:"policy"`
+	Audit      AuditConfig  `json:"audit"`
+	SourcePath string       `json:"-"`
+}
+
+// Default возвращает безопасную конфигурацию по умолчанию (строгий readonly).
+func Default() Config {
+	auditPath := DefaultAuditPath
+	if os.Geteuid() != 0 {
+		if home, err := os.UserHomeDir(); err == nil {
+			if _, statErr := os.Stat(filepath.Dir(DefaultAuditPath)); statErr != nil {
+				auditPath = filepath.Join(home, ".local", "state", "sysagentd", "audit.jsonl")
+			}
+		}
+	}
+	return Config{
+		SocketPath: DefaultSocketPath,
+		Policy: PolicyConfig{
+			Mode:              ModeReadOnly,
+			AllowDangerous:    false,
+			DisabledTools:     []string{},
+			CommandTimeoutSec: 20,
+			MaxOutputBytes:    20_000,
+		},
+		Audit: AuditConfig{
+			Path: auditPath,
+		},
+	}
+}
+
+// DefaultSearchPaths возвращает стандартные пути поиска конфига по приоритету.
+func DefaultSearchPaths() []string {
+	var paths []string
+	if home, err := os.UserHomeDir(); err == nil {
+		paths = append(paths,
+			filepath.Join(home, ".config", "sysagentd", "config.jsonc"),
+			filepath.Join(home, ".config", "sysagentd", "config.json"),
+		)
+	}
+	paths = append(paths,
+		"/etc/sysagentd/config.jsonc",
+		"/etc/sysagentd/config.json",
+	)
+	return paths
+}
+
+// Load загружает конфигурацию из указанного файла (или из стандартных путей),
+// применяет переопределения из переменных окружения и проверяет корректность.
+func Load(explicitPath string) (Config, error) {
+	cfg := Default()
+
+	candidate := strings.TrimSpace(explicitPath)
+	if candidate == "" {
+		candidate = strings.TrimSpace(os.Getenv("SYSAGENTD_CONFIG"))
+	}
+
+	if candidate != "" {
+		if err := loadFromFile(candidate, &cfg); err != nil {
+			return Config{}, err
+		}
+	} else {
+		for _, p := range DefaultSearchPaths() {
+			if info, err := os.Stat(p); err == nil && !info.IsDir() {
+				if err := loadFromFile(p, &cfg); err != nil {
+					return Config{}, err
+				}
+				break
+			}
+		}
+	}
+
+	applyEnvOverrides(&cfg)
+
+	if err := cfg.Validate(); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+func loadFromFile(path string, cfg *Config) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("чтение конфига %s: %w", path, err)
+	}
+	clean := StripJSONComments(raw)
+	dec := json.NewDecoder(bytes.NewReader(clean))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(cfg); err != nil {
+		return fmt.Errorf("разбор конфига %s: %w", path, err)
+	}
+	cfg.SourcePath = path
+	return nil
+}
+
+func applyEnvOverrides(cfg *Config) {
+	if v := strings.TrimSpace(os.Getenv("SYSAGENTD_SOCKET")); v != "" {
+		cfg.SocketPath = v
+	}
+	if v := strings.TrimSpace(os.Getenv("SYSAGENTD_MODE")); v != "" {
+		cfg.Policy.Mode = v
+	}
+	if v := strings.TrimSpace(os.Getenv("SYSAGENTD_AUDIT")); v != "" {
+		cfg.Audit.Path = v
+	}
+}
+
+// Validate проверяет допустимость всех параметров конфигурации.
+func (c *Config) Validate() error {
+	if strings.TrimSpace(c.SocketPath) == "" {
+		return errors.New("socket_path не может быть пустым")
+	}
+	switch c.Policy.Mode {
+	case ModeReadOnly, ModeAsk, ModeAuto:
+	default:
+		return fmt.Errorf("недопустимый policy.mode=%q (ожидается readonly, ask или auto)", c.Policy.Mode)
+	}
+	if c.Policy.CommandTimeoutSec < 1 || c.Policy.CommandTimeoutSec > 600 {
+		return fmt.Errorf("policy.command_timeout_sec=%d вне допустимого диапазона 1..600", c.Policy.CommandTimeoutSec)
+	}
+	if c.Policy.MaxOutputBytes < 512 || c.Policy.MaxOutputBytes > 10_000_000 {
+		return fmt.Errorf("policy.max_output_bytes=%d вне допустимого диапазона 512..10000000", c.Policy.MaxOutputBytes)
+	}
+	if strings.TrimSpace(c.Audit.Path) == "" {
+		return errors.New("audit.path не может быть пустым")
+	}
+	return nil
+}
+
+// StripJSONComments удаляет комментарии // и # вне строковых литералов JSON,
+// сохраняя номера строк для понятных сообщений об ошибках синтаксиса.
+func StripJSONComments(src []byte) []byte {
+	out := make([]byte, 0, len(src))
+	inString := false
+	escaped := false
+
+	for i := 0; i < len(src); i++ {
+		ch := src[i]
+		if inString {
+			out = append(out, ch)
+			if escaped {
+				escaped = false
+			} else if ch == '\\' {
+				escaped = true
+			} else if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+
+		if ch == '"' {
+			inString = true
+			out = append(out, ch)
+			continue
+		}
+
+		// Однострочный комментарий # ... или // ...
+		if ch == '#' || (ch == '/' && i+1 < len(src) && src[i+1] == '/') {
+			for i < len(src) && src[i] != '\n' {
+				i++
+			}
+			if i < len(src) && src[i] == '\n' {
+				out = append(out, '\n')
+			}
+			continue
+		}
+
+		out = append(out, ch)
+	}
+	return out
+}
+
+sysagent/internal/config/config_test.go
++64
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestDefaultIsReadOnly(t *testing.T) {
+	cfg := Default()
+	if cfg.Policy.Mode != ModeReadOnly {
+		t.Fatalf("по умолчанию ожидался режим %q, получено %q", ModeReadOnly, cfg.Policy.Mode)
+	}
+	if cfg.Policy.AllowDangerous {
+		t.Fatal("allow_dangerous должен быть выключен по умолчанию")
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("конфиг по умолчанию должен быть валиден: %v", err)
+	}
+}
+
+func TestLoadJSONWithComments(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "config.jsonc")
+	content := `{
+		// Комментарий в стиле C++
+		"socket_path": "/tmp/test-sysagent.sock", # комментарий в конце строки
+		"policy": {
+			"mode": "ask",
+			"allow_dangerous": false,
+			"disabled_tools": ["demo.write"],
+			"command_timeout_sec": 15,
+			"max_output_bytes": 8192
+		},
+		"audit": {
+			"path": "/tmp/test-audit.jsonl"
+		}
+	}`
+	if err := os.WriteFile(cfgFile, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(cfgFile)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка чтения JSONC: %v", err)
+	}
+	if cfg.SocketPath != "/tmp/test-sysagent.sock" {
+		t.Fatalf("неожиданный socket_path: %s", cfg.SocketPath)
+	}
+	if cfg.Policy.Mode != ModeAsk {
+		t.Fatalf("ожидался режим ask, получено %s", cfg.Policy.Mode)
+	}
+	if len(cfg.Policy.DisabledTools) != 1 || cfg.Policy.DisabledTools[0] != "demo.write" {
+		t.Fatalf("неожиданный список disabled_tools: %+v", cfg.Policy.DisabledTools)
+	}
+}
+
+func TestRejectInvalidMode(t *testing.T) {
+	cfg := Default()
+	cfg.Policy.Mode = "unrestricted"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("ожидалась ошибка валидации для недопустимого режима политики")
+	}
+}
+
+sysagent/internal/core/audit.go
++102
+package core
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+)
+
+// AuditRecord представляет одну запись в журнале аудита audit.jsonl.
+type AuditRecord struct {
+	Timestamp  string            `json:"ts"`
+	PID        int               `json:"pid"`
+	Caller     string            `json:"caller,omitempty"`
+	Tool       string            `json:"tool"`
+	Module     string            `json:"module,omitempty"`
+	Risk       RiskLevel         `json:"risk,omitempty"`
+	Args       map[string]string `json:"args,omitempty"`
+	Allowed    bool              `json:"allowed"`
+	OK         bool              `json:"ok"`
+	Reason     string            `json:"reason,omitempty"`
+	Error      string            `json:"error,omitempty"`
+	DurationMs int64             `json:"duration_ms"`
+}
+
+// Auditor потокобезопасно записывает события аудита в файл JSON Lines.
+type Auditor struct {
+	path string
+	mu   sync.Mutex
+}
+
+// NewAuditor создаёт экземпляр журнала аудита по указанному пути.
+func NewAuditor(path string) *Auditor {
+	return &Auditor{path: path}
+}
+
+// Path возвращает путь к файлу журнала аудита.
+func (a *Auditor) Path() string {
+	return a.path
+}
+
+// Write добавляет одну JSON-строку в журнал аудита с автоматическим маскированием секретов.
+func (a *Auditor) Write(rec AuditRecord) error {
+	if a == nil || strings.TrimSpace(a.path) == "" {
+		return nil
+	}
+	rec.Timestamp = time.Now().Format(time.RFC3339)
+	rec.PID = os.Getpid()
+	rec.Args = RedactArgs(rec.Args)
+
+	line, err := json.Marshal(rec)
+	if err != nil {
+		return err
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if mkErr := os.MkdirAll(filepath.Dir(a.path), 0o750); mkErr != nil {
+		return mkErr
+	}
+	f, openErr := os.OpenFile(a.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o640)
+	if openErr != nil {
+		return openErr
+	}
+	defer f.Close()
+
+	_, writeErr := f.Write(append(line, '\n'))
+	return writeErr
+}
+
+// RedactArgs маскирует любые аргументы, имена которых могут содержать секреты.
+func RedactArgs(args map[string]string) map[string]string {
+	if len(args) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(args))
+	for k, v := range args {
+		if isSensitiveKey(k) {
+			out[k] = "****"
+		} else {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+func isSensitiveKey(key string) bool {
+	lower := strings.ToLower(strings.TrimSpace(key))
+	sensitiveTokens := []string{
+		"password", "passwd", "secret", "token", "apikey", "api_key",
+		"private_key", "key", "auth", "credential",
+	}
+	for _, tok := range sensitiveTokens {
+		if strings.Contains(lower, tok) {
+			return true
+		}
+	}
+	return false
+}
+
+sysagent/internal/core/core_test.go
++182
+package core
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"sysagent/internal/config"
+)
+
+type stubModule struct{}
+
+func (stubModule) Name() string        { return "demo" }
+func (stubModule) Description() string { return "Тестовый модуль для проверки контракта ядра" }
+func (stubModule) Tools() []Tool {
+	return []Tool{
+		FuncTool{
+			ToolSpec: ToolSpec{
+				Name:        "demo.read",
+				Module:      "demo",
+				Description: "Безопасное чтение",
+				Risk:        RiskRead,
+				Params: []ParamSpec{
+					{Name: "target", Description: "Имя цели", Required: true},
+					{Name: "api_token", Description: "Проверка маскирования в аудите"},
+				},
+			},
+			Handler: func(_ context.Context, args map[string]string) (any, error) {
+				return map[string]string{"checked": args["target"]}, nil
+			},
+		},
+		FuncTool{
+			ToolSpec: ToolSpec{
+				Name:        "demo.write",
+				Module:      "demo",
+				Description: "Изменение состояния",
+				Risk:        RiskWrite,
+			},
+			Handler: func(_ context.Context, _ map[string]string) (any, error) {
+				return map[string]bool{"changed": true}, nil
+			},
+		},
+		FuncTool{
+			ToolSpec: ToolSpec{
+				Name:        "demo.danger",
+				Module:      "demo",
+				Description: "Опасная операция",
+				Risk:        RiskDangerous,
+			},
+			Handler: func(_ context.Context, _ map[string]string) (any, error) {
+				return map[string]bool{"wiped": true}, nil
+			},
+		},
+		FuncTool{
+			ToolSpec: ToolSpec{
+				Name:        "demo.slow",
+				Module:      "demo",
+				Description: "Медленная операция для проверки таймаута",
+				Risk:        RiskRead,
+			},
+			Handler: func(ctx context.Context, _ map[string]string) (any, error) {
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(5 * time.Second):
+					return "done", nil
+				}
+			},
+		},
+	}
+}
+
+func newTestEngine(t *testing.T, mode string) (*Engine, string) {
+	t.Helper()
+	auditFile := filepath.Join(t.TempDir(), "audit.jsonl")
+	cfg := config.Default()
+	cfg.Policy.Mode = mode
+	cfg.Policy.CommandTimeoutSec = 1
+	cfg.Audit.Path = auditFile
+
+	eng, err := NewEngine(cfg)
+	if err != nil {
+		t.Fatalf("ошибка создания ядра: %v", err)
+	}
+	if err := eng.RegisterModule(stubModule{}); err != nil {
+		t.Fatalf("ошибка регистрации модуля: %v", err)
+	}
+	return eng, auditFile
+}
+
+func TestPolicyAndAudit(t *testing.T) {
+	eng, auditFile := newTestEngine(t, config.ModeReadOnly)
+	ctx := context.Background()
+
+	// 1. Неизвестная команда (попытка произвольного shell) жёстко отклоняется.
+	rUnknown := eng.Execute(ctx, Request{Tool: "rm -rf /"})
+	if rUnknown.OK {
+		t.Fatal("неизвестная операция должна отклоняться")
+	}
+
+	// 2. Инъекция shell-метасимволов в разрешённый параметр отклоняется ядром.
+	rInject := eng.Execute(ctx, Request{
+		Tool: "demo.read",
+		Args: map[string]string{"target": "pve01; reboot"},
+	})
+	if rInject.OK {
+		t.Fatal("инъекция shell-символов в параметр должна отклоняться")
+	}
+
+	// 3. Необъявленный параметр отклоняется ядром.
+	rExtra := eng.Execute(ctx, Request{
+		Tool: "demo.read",
+		Args: map[string]string{"target": "pve01", "extra": "123"},
+	})
+	if rExtra.OK {
+		t.Fatal("необъявленный параметр должен отклоняться")
+	}
+
+	// 4. Корректное чтение проходит, но чувствительный аргумент маскируется в audit.jsonl.
+	rRead := eng.Execute(ctx, Request{
+		Tool: "demo.read",
+		Args: map[string]string{"target": "pve02", "api_token": "SUPER-SECRET-VALUE"},
+	})
+	if !rRead.OK {
+		t.Fatalf("ожидался успех чтения, получена ошибка: %s", rRead.Error)
+	}
+
+	// 5. Запись в режиме readonly отклоняется даже с флагом Approved=true.
+	rWrite := eng.Execute(ctx, Request{Tool: "demo.write", Approved: true})
+	if rWrite.OK {
+		t.Fatal("операция write не должна выполняться в режиме readonly")
+	}
+
+	// 6. Опасная операция отклоняется.
+	rDanger := eng.Execute(ctx, Request{Tool: "demo.danger", Approved: true})
+	if rDanger.OK {
+		t.Fatal("операция dangerous должна отклоняться при allow_dangerous=false")
+	}
+
+	// Проверяем, что секрет нигде не попал открытым текстом в журнал аудита.
+	rawAudit, err := os.ReadFile(auditFile)
+	if err != nil {
+		t.Fatalf("не прочитан журнал аудита: %v", err)
+	}
+	auditText := string(rawAudit)
+	if strings.Contains(auditText, "SUPER-SECRET-VALUE") {
+		t.Fatalf("секрет утёк в журнал аудита открытым текстом:\n%s", auditText)
+	}
+	if !strings.Contains(auditText, `"api_token":"****"`) {
+		t.Fatalf("ожидалась маска **** в журнале аудита:\n%s", auditText)
+	}
+}
+
+func TestAskModeRequiresApproval(t *testing.T) {
+	eng, _ := newTestEngine(t, config.ModeAsk)
+	ctx := context.Background()
+
+	// Без подтверждения — отказ с флагом NeedsApproval=true.
+	r1 := eng.Execute(ctx, Request{Tool: "demo.write"})
+	if r1.OK || !r1.NeedsApproval {
+		t.Fatalf("ожидался запрос подтверждения, получено: %+v", r1)
+	}
+
+	// С подтверждением — успех.
+	r2 := eng.Execute(ctx, Request{Tool: "demo.write", Approved: true})
+	if !r2.OK {
+		t.Fatalf("ожидалось выполнение после подтверждения: %s", r2.Error)
+	}
+}
+
+func TestCommandTimeout(t *testing.T) {
+	eng, _ := newTestEngine(t, config.ModeReadOnly)
+	r := eng.Execute(context.Background(), Request{Tool: "demo.slow"})
+	if r.OK || !strings.Contains(r.Error, "таймаут") {
+		var dump, _ = json.Marshal(r)
+		t.Fatalf("ожидалось прерывание по таймауту, получено: %s", string(dump))
+	}
+}
+
+sysagent/internal/core/engine.go
++373
+package core
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"runtime"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"sysagent/internal/config"
+)
+
+// Engine связывает воедино конфигурацию, реестр модулей/инструментов, политику и аудит.
+type Engine struct {
+	cfg       config.Config
+	auditor   *Auditor
+	startedAt time.Time
+
+	mu      sync.RWMutex
+	modules []ModuleInfo
+	tools   map[string]Tool   // каноническое имя -> инструмент
+	aliases map[string]string // псевдоним -> каноническое имя
+}
+
+// ModuleInfo хранит сводку о подключённом модуле для инспекции.
+type ModuleInfo struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Tools       []string `json:"tools"`
+}
+
+// NewEngine инициализирует ядро и автоматически регистрирует встроенный системный модуль "core".
+func NewEngine(cfg config.Config) (*Engine, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	e := &Engine{
+		cfg:       cfg,
+		auditor:   NewAuditor(cfg.Audit.Path),
+		startedAt: time.Now(),
+		tools:     make(map[string]Tool),
+		aliases:   make(map[string]string),
+	}
+	if err := e.RegisterModule(e.builtinCoreModule()); err != nil {
+		return nil, err
+	}
+	return e, nil
+}
+
+// Config возвращает копию активной конфигурации ядра.
+func (e *Engine) Config() config.Config {
+	return e.cfg
+}
+
+// RegisterModule подключает к ядру новый пакет функций (модуль).
+func (e *Engine) RegisterModule(m Module) error {
+	if m == nil {
+		return fmt.Errorf("попытка зарегистрировать пустой модуль")
+	}
+	modName := strings.TrimSpace(m.Name())
+	if modName == "" {
+		return fmt.Errorf("имя модуля не может быть пустым")
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	for _, existing := range e.modules {
+		if existing.Name == modName {
+			return fmt.Errorf("модуль %q уже зарегистрирован", modName)
+		}
+	}
+
+	var registeredNames []string
+	for _, t := range m.Tools() {
+		spec := t.Spec()
+		name := strings.TrimSpace(spec.Name)
+		if name == "" {
+			return fmt.Errorf("пустое имя инструмента в модуле %q", modName)
+		}
+		if _, exists := e.tools[name]; exists {
+			return fmt.Errorf("дублирование имени инструмента %q", name)
+		}
+		if target, exists := e.aliases[name]; exists {
+			return fmt.Errorf("имя инструмента %q конфликтует с псевдонимом для %q", name, target)
+		}
+		for _, alias := range spec.Aliases {
+			a := strings.TrimSpace(alias)
+			if a == "" {
+				continue
+			}
+			if _, exists := e.tools[a]; exists {
+				return fmt.Errorf("псевдоним %q конфликтует с инструментом %q", a, a)
+			}
+			if target, exists := e.aliases[a]; exists {
+				return fmt.Errorf("дублирование псевдонима %q (уже привязан к %q)", a, target)
+			}
+			e.aliases[a] = name
+		}
+		e.tools[name] = t
+		registeredNames = append(registeredNames, name)
+	}
+	sort.Strings(registeredNames)
+
+	e.modules = append(e.modules, ModuleInfo{
+		Name:        modName,
+		Description: m.Description(),
+		Tools:       registeredNames,
+	})
+	return nil
+}
+
+// ListSpecs возвращает отсортированный список спецификаций всех подключённых инструментов.
+func (e *Engine) ListSpecs() []ToolSpec {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	specs := make([]ToolSpec, 0, len(e.tools))
+	for _, t := range e.tools {
+		specs = append(specs, t.Spec())
+	}
+	sort.Slice(specs, func(i, j int) bool {
+		return specs[i].Name < specs[j].Name
+	})
+	return specs
+}
+
+// ListModules возвращает список подключённых модулей.
+func (e *Engine) ListModules() []ModuleInfo {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	out := make([]ModuleInfo, len(e.modules))
+	copy(out, e.modules)
+	return out
+}
+
+func (e *Engine) resolveTool(name string) (Tool, bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	key := strings.TrimSpace(name)
+	if t, ok := e.tools[key]; ok {
+		return t, true
+	}
+	if canonical, ok := e.aliases[key]; ok {
+		t, found := e.tools[canonical]
+		return t, found
+	}
+	return nil, false
+}
+
+func (e *Engine) writeAudit(rec AuditRecord) {
+	// Служебные проверки живого статуса консоли (core.*) не засоряют журнал аудита.
+	if rec.Caller == "status" && rec.Allowed && rec.Module == "core" {
+		return
+	}
+	if err := e.auditor.Write(rec); err != nil {
+		log.Printf("предупреждение: не удалось записать событие в журнал аудита %s: %v", e.auditor.Path(), err)
+	}
+}
+
+// Execute — единственная точка выполнения любых запросов к ядру.
+// Ни один инструмент не может обойти проверку политики, таймаут или запись в аудит.
+func (e *Engine) Execute(ctx context.Context, req Request) Response {
+	started := time.Now()
+	requestedName := strings.TrimSpace(req.Tool)
+
+	tool, found := e.resolveTool(requestedName)
+	if !found {
+		errMsg := fmt.Sprintf("неизвестная операция %q (вызовите 'tools' для списка доступных)", requestedName)
+		elapsed := time.Since(started)
+		e.writeAudit(AuditRecord{
+			Caller:     req.Caller,
+			Tool:       requestedName,
+			Args:       req.Args,
+			Allowed:    false,
+			OK:         false,
+			Reason:     "операция отсутствует в реестре ядра",
+			Error:      errMsg,
+			DurationMs: elapsed.Milliseconds(),
+		})
+		return Response{
+			OK:      false,
+			Tool:    requestedName,
+			Error:   errMsg,
+			Elapsed: elapsed.Round(time.Microsecond).String(),
+		}
+	}
+
+	spec := tool.Spec()
+	decision := EvaluatePolicy(e.cfg.Policy, spec, req)
+	if !decision.Allowed {
+		elapsed := time.Since(started)
+		e.writeAudit(AuditRecord{
+			Caller:     req.Caller,
+			Tool:       spec.Name,
+			Module:     spec.Module,
+			Risk:       spec.Risk,
+			Args:       req.Args,
+			Allowed:    false,
+			OK:         false,
+			Reason:     decision.Reason,
+			Error:      decision.Reason,
+			DurationMs: elapsed.Milliseconds(),
+		})
+		return Response{
+			OK:            false,
+			Tool:          spec.Name,
+			Risk:          spec.Risk,
+			NeedsApproval: decision.NeedsApproval,
+			Error:         decision.Reason,
+			Elapsed:       elapsed.Round(time.Microsecond).String(),
+		}
+	}
+
+	timeout := time.Duration(e.cfg.Policy.CommandTimeoutSec) * time.Second
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	argsCopy := make(map[string]string, len(req.Args))
+	for k, v := range req.Args {
+		argsCopy[k] = v
+	}
+
+	result, err := tool.Run(runCtx, argsCopy)
+	elapsed := time.Since(started)
+
+	if err != nil {
+		errText := err.Error()
+		if runCtx.Err() == context.DeadlineExceeded {
+			errText = fmt.Sprintf("превышен таймаут выполнения (%s)", timeout)
+		}
+		e.writeAudit(AuditRecord{
+			Caller:     req.Caller,
+			Tool:       spec.Name,
+			Module:     spec.Module,
+			Risk:       spec.Risk,
+			Args:       req.Args,
+			Allowed:    true,
+			OK:         false,
+			Reason:     decision.Reason,
+			Error:      errText,
+			DurationMs: elapsed.Milliseconds(),
+		})
+		return Response{
+			OK:      false,
+			Tool:    spec.Name,
+			Risk:    spec.Risk,
+			Error:   errText,
+			Elapsed: elapsed.Round(time.Millisecond).String(),
+		}
+	}
+
+	raw, marshalErr := json.Marshal(result)
+	if marshalErr != nil {
+		e.writeAudit(AuditRecord{
+			Caller:     req.Caller,
+			Tool:       spec.Name,
+			Module:     spec.Module,
+			Risk:       spec.Risk,
+			Args:       req.Args,
+			Allowed:    true,
+			OK:         false,
+			Error:      marshalErr.Error(),
+			DurationMs: elapsed.Milliseconds(),
+		})
+		return Response{
+			OK:      false,
+			Tool:    spec.Name,
+			Risk:    spec.Risk,
+			Error:   fmt.Sprintf("ошибка сериализации ответа: %v", marshalErr),
+			Elapsed: elapsed.Round(time.Millisecond).String(),
+		}
+	}
+
+	e.writeAudit(AuditRecord{
+		Caller:     req.Caller,
+		Tool:       spec.Name,
+		Module:     spec.Module,
+		Risk:       spec.Risk,
+		Args:       req.Args,
+		Allowed:    true,
+		OK:         true,
+		Reason:     decision.Reason,
+		DurationMs: elapsed.Milliseconds(),
+	})
+
+	return Response{
+		OK:      true,
+		Tool:    spec.Name,
+		Risk:    spec.Risk,
+		Data:    raw,
+		Elapsed: elapsed.Round(time.Microsecond).String(),
+	}
+}
+
+type builtinModule struct {
+	name        string
+	description string
+	tools       []Tool
+}
+
+func (m builtinModule) Name() string        { return m.name }
+func (m builtinModule) Description() string { return m.description }
+func (m builtinModule) Tools() []Tool       { return m.tools }
+
+func (e *Engine) builtinCoreModule() Module {
+	return builtinModule{
+		name:        "core",
+		description: "Встроенные служебные операции ядра (проверка связи, версия, список подключённых модулей)",
+		tools: []Tool{
+			FuncTool{
+				ToolSpec: ToolSpec{
+					Name:        "core.ping",
+					Aliases:     []string{"ping"},
+					Module:      "core",
+					Description: "Проверка работоспособности ядра и времени непрерывной работы демона",
+					Risk:        RiskRead,
+				},
+				Handler: func(_ context.Context, _ map[string]string) (any, error) {
+					return map[string]any{
+						"pong":    true,
+						"version": Version,
+						"uptime":  time.Since(e.startedAt).Round(time.Second).String(),
+					}, nil
+				},
+			},
+			FuncTool{
+				ToolSpec: ToolSpec{
+					Name:        "core.version",
+					Aliases:     []string{"version"},
+					Module:      "core",
+					Description: "Сведения о версии агента, среде выполнения Go и активном режиме политики",
+					Risk:        RiskRead,
+				},
+				Handler: func(_ context.Context, _ map[string]string) (any, error) {
+					source := "(по умолчанию)"
+					if e.cfg.SourcePath != "" {
+						source = e.cfg.SourcePath
+					}
+					return map[string]any{
+						"version":       Version,
+						"go":            runtime.Version(),
+						"os_arch":       runtime.GOOS + "/" + runtime.GOARCH,
+						"policy_mode":   e.cfg.Policy.Mode,
+						"config_source": source,
+						"audit_path":    e.auditor.Path(),
+					}, nil
+				},
+			},
+			FuncTool{
+				ToolSpec: ToolSpec{
+					Name:        "core.tools",
+					Aliases:     []string{"tools"},
+					Module:      "core",
+					Description: "Перечень всех подключённых модулей и доступных операций с уровнями риска",
+					Risk:        RiskRead,
+				},
+				Handler: func(_ context.Context, _ map[string]string) (any, error) {
+					return map[string]any{
+						"modules": e.ListModules(),
+						"tools":   e.ListSpecs(),
+					}, nil
+				},
+			},
+		},
+	}
+}
+
+sysagent/internal/core/policy.go
++149
+package core
+
+import (
+	"fmt"
+	"strings"
+
+	"sysagent/internal/config"
+)
+
+const (
+	maxArgKeyLen = 64
+	maxArgValLen = 512
+
+	// Символы командной оболочки запрещены на уровне ядра для любых аргументов:
+	// агент никогда не конструирует shell-строки и не допускает инъекций.
+	forbiddenArgChars = ";|&$`><\n\r\x00"
+)
+
+// Decision описывает вердикт политики безопасности по запросу.
+type Decision struct {
+	Allowed       bool
+	NeedsApproval bool
+	Reason        string
+	Risk          RiskLevel
+}
+
+// EvaluatePolicy проверяет, разрешено ли выполнение инструмента с переданными аргументами.
+func EvaluatePolicy(cfg config.PolicyConfig, spec ToolSpec, req Request) Decision {
+	// 1. Проверка отключения инструмента в конфигурации администратора.
+	for _, disabled := range cfg.DisabledTools {
+		d := strings.TrimSpace(disabled)
+		if d == spec.Name || containsString(spec.Aliases, d) {
+			return Decision{
+				Allowed: false,
+				Risk:    spec.Risk,
+				Reason:  fmt.Sprintf("инструмент %q отключён в конфигурации (policy.disabled_tools)", spec.Name),
+			}
+		}
+	}
+
+	// 2. Проверка списка допустимых параметров и безопасности их значений.
+	if err := validateArgs(spec, req.Args); err != nil {
+		return Decision{
+			Allowed: false,
+			Risk:    spec.Risk,
+			Reason:  err.Error(),
+		}
+	}
+
+	// 3. Проверка уровня риска операции согласно режиму политики.
+	switch spec.Risk {
+	case RiskRead:
+		return Decision{Allowed: true, Risk: RiskRead, Reason: "разрешено (чтение)"}
+
+	case RiskWrite:
+		switch cfg.Mode {
+		case config.ModeReadOnly:
+			return Decision{
+				Allowed: false,
+				Risk:    RiskWrite,
+				Reason:  "отклонено: активен режим readonly (изменения запрещены)",
+			}
+		case config.ModeAsk:
+			if !req.Approved {
+				return Decision{
+					Allowed:       false,
+					NeedsApproval: true,
+					Risk:          RiskWrite,
+					Reason:        "требуется явное подтверждение пользователя (режим ask)",
+				}
+			}
+			return Decision{Allowed: true, Risk: RiskWrite, Reason: "разрешено (подтверждено пользователем)"}
+		case config.ModeAuto:
+			return Decision{Allowed: true, Risk: RiskWrite, Reason: "разрешено (режим auto)"}
+		default:
+			return Decision{Allowed: false, Risk: RiskWrite, Reason: "неизвестный режим политики"}
+		}
+
+	case RiskDangerous:
+		if !cfg.AllowDangerous {
+			return Decision{
+				Allowed: false,
+				Risk:    RiskDangerous,
+				Reason:  "отклонено: опасные операции запрещены политикой (allow_dangerous=false)",
+			}
+		}
+		if cfg.Mode == config.ModeReadOnly {
+			return Decision{
+				Allowed: false,
+				Risk:    RiskDangerous,
+				Reason:  "отклонено: активен режим readonly",
+			}
+		}
+		if !req.Approved {
+			return Decision{
+				Allowed:       false,
+				NeedsApproval: true,
+				Risk:          RiskDangerous,
+				Reason:        "опасная операция всегда требует явного подтверждения",
+			}
+		}
+		return Decision{Allowed: true, Risk: RiskDangerous, Reason: "разрешено (опасная операция подтверждена)"}
+
+	default:
+		return Decision{
+			Allowed: false,
+			Risk:    spec.Risk,
+			Reason:  fmt.Sprintf("неизвестный уровень риска %q у инструмента %q", spec.Risk, spec.Name),
+		}
+	}
+}
+
+func validateArgs(spec ToolSpec, args map[string]string) error {
+	allowed := make(map[string]ParamSpec, len(spec.Params))
+	for _, p := range spec.Params {
+		allowed[p.Name] = p
+	}
+
+	for k, v := range args {
+		if len(k) == 0 || len(k) > maxArgKeyLen {
+			return fmt.Errorf("некорректное имя параметра %q", k)
+		}
+		if _, ok := allowed[k]; !ok {
+			return fmt.Errorf("неизвестный параметр %q для инструмента %q", k, spec.Name)
+		}
+		if len(v) > maxArgValLen {
+			return fmt.Errorf("значение параметра %q превышает лимит %d символов", k, maxArgValLen)
+		}
+		if strings.ContainsAny(v, forbiddenArgChars) {
+			return fmt.Errorf("недопустимые управляющие/shell-символы в параметре %q", k)
+		}
+	}
+
+	for _, p := range spec.Params {
+		if p.Required && strings.TrimSpace(args[p.Name]) == "" {
+			return fmt.Errorf("не указан обязательный параметр %q", p.Name)
+		}
+	}
+	return nil
+}
+
+func containsString(items []string, target string) bool {
+	for _, item := range items {
+		if item == target {
+			return true
+		}
+	}
+	return false
+}
+
+sysagent/internal/core/types.go
++105
+// Пакет core реализует неизменяемое ядро агента sysagentd:
+// контракт подключаемых модулей, реестр инструментов, проверку политики и аудит.
+package core
+
+import (
+	"context"
+	"encoding/json"
+)
+
+// Version — текущая версия ядра агента.
+const Version = "0.2.0"
+
+// RiskLevel определяет класс риска конкретной операции.
+type RiskLevel string
+
+const (
+	RiskRead      RiskLevel = "read"      // только чтение, не меняет состояние системы
+	RiskWrite     RiskLevel = "write"     // изменяет состояние службы/конфигурации
+	RiskDangerous RiskLevel = "dangerous" // потенциально разрушительная операция
+)
+
+// ParamSpec описывает один допустимый входной параметр инструмента.
+type ParamSpec struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Required    bool   `json:"required,omitempty"`
+}
+
+// ToolSpec содержит метаданные и правила вызова одного инструмента.
+type ToolSpec struct {
+	Name        string      `json:"name"`                  // полное имя: <модуль>.<операция>
+	Aliases     []string    `json:"aliases,omitempty"`     // короткие псевдонимы для CLI (опционально)
+	Module      string      `json:"module"`                // имя модуля-владельца
+	Description string      `json:"description"`           // описание на русском языке
+	Risk        RiskLevel   `json:"risk"`                  // read | write | dangerous
+	Params      []ParamSpec `json:"params,omitempty"`      // строго закрытый список параметров
+}
+
+// InputJSONSchema формирует JSON Schema параметров инструмента (готово для MCP и Web API).
+func (s ToolSpec) InputJSONSchema() map[string]any {
+	props := make(map[string]any, len(s.Params))
+	var required []string
+	for _, p := range s.Params {
+		props[p.Name] = map[string]any{
+			"type":        "string",
+			"description": p.Description,
+		}
+		if p.Required {
+			required = append(required, p.Name)
+		}
+	}
+	schema := map[string]any{
+		"type":                 "object",
+		"properties":           props,
+		"additionalProperties": false,
+	}
+	if len(required) > 0 {
+		schema["required"] = required
+	}
+	return schema
+}
+
+// Tool — единый интерфейс любой диагностической или управляющей функции.
+type Tool interface {
+	Spec() ToolSpec
+	Run(ctx context.Context, args map[string]string) (any, error)
+}
+
+// Module — единый интерфейс подключаемой «библиотеки функций» (local, proxmox, linuxssh и т.д.).
+type Module interface {
+	Name() string
+	Description() string
+	Tools() []Tool
+}
+
+// FuncTool — удобная обёртка, позволяющая создавать инструменты из обычной функции.
+type FuncTool struct {
+	ToolSpec ToolSpec
+	Handler  func(ctx context.Context, args map[string]string) (any, error)
+}
+
+func (ft FuncTool) Spec() ToolSpec { return ft.ToolSpec }
+
+func (ft FuncTool) Run(ctx context.Context, args map[string]string) (any, error) {
+	return ft.Handler(ctx, args)
+}
+
+// Request представляет единый формат запроса от любого клиента (CLI, сокет, будущий Web/MCP).
+type Request struct {
+	Tool     string            `json:"tool"`
+	Args     map[string]string `json:"args,omitempty"`
+	Approved bool              `json:"approved,omitempty"` // подтверждение человеком для режима ask
+	Caller   string            `json:"caller,omitempty"`   // источник вызова для аудита (cli, local, mcp)
+}
+
+// Response представляет единый формат ответа ядра.
+type Response struct {
+	OK            bool            `json:"ok"`
+	Tool          string          `json:"tool,omitempty"`
+	Risk          RiskLevel       `json:"risk,omitempty"`
+	NeedsApproval bool            `json:"needs_approval,omitempty"`
+	Data          json.RawMessage `json:"data,omitempty"`
+	Error         string          `json:"error,omitempty"`
+	Elapsed       string          `json:"elapsed"`
+}
+
+sysagent/internal/ipc/control.go
++333
+package ipc
+
+import (
+	"bufio"
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	"sysagent/internal/config"
+	"sysagent/internal/core"
+)
+
+// DaemonStatus содержит полную сводку о текущем состоянии фонового демона.
+type DaemonStatus struct {
+	Running    bool   `json:"running"`
+	SocketOK   bool   `json:"socket_ok"`
+	PID        int    `json:"pid,omitempty"`
+	RSSKB      int64  `json:"rss_kb,omitempty"`
+	Uptime     string `json:"uptime,omitempty"`
+	Version    string `json:"version,omitempty"`
+	PolicyMode string `json:"policy_mode,omitempty"`
+	SocketPath string `json:"socket_path"`
+	PIDPath    string `json:"pid_path"`
+	DaemonLog  string `json:"daemon_log"`
+	AuditPath  string `json:"audit_path"`
+}
+
+// PIDPath возвращает путь к PID-файлу рядом с Unix-сокетом.
+func PIDPath(cfg config.Config) string {
+	return filepath.Join(filepath.Dir(cfg.SocketPath), "sysagentd.pid")
+}
+
+// DaemonLogPath возвращает путь к логу фонового процесса демона рядом с журналом аудита.
+func DaemonLogPath(cfg config.Config) string {
+	return filepath.Join(filepath.Dir(cfg.Audit.Path), "daemon.log")
+}
+
+// IsRunningFast выполняет мгновенную локальную проверку процесса и сокета без записи в аудит
+// (используется для индикатора ● / ○ в строке приглашения консоли).
+func IsRunningFast(cfg config.Config) (bool, int) {
+	pid := resolveRunningPID(PIDPath(cfg), cfg.SocketPath)
+	if pid <= 0 {
+		return false, 0
+	}
+	if _, err := os.Stat(cfg.SocketPath); err != nil {
+		return false, pid
+	}
+	return true, pid
+}
+
+// GetStatus проверяет процесс демона, потребление памяти RSS и живой отклик по сокету.
+func GetStatus(cfg config.Config) DaemonStatus {
+	st := DaemonStatus{
+		SocketPath: cfg.SocketPath,
+		PIDPath:    PIDPath(cfg),
+		DaemonLog:  DaemonLogPath(cfg),
+		AuditPath:  cfg.Audit.Path,
+		PolicyMode: cfg.Policy.Mode,
+	}
+
+	pid := resolveRunningPID(st.PIDPath, cfg.SocketPath)
+	if pid > 0 {
+		st.Running = true
+		st.PID = pid
+		st.RSSKB = readProcRSSKB(pid)
+	}
+
+	// Проверяем реальный отклик демона по Unix-сокету.
+	if pingResp, err := CallUnix(cfg.SocketPath, core.Request{Tool: "ping", Caller: "status"}, 2*time.Second); err == nil && pingResp.OK {
+		st.SocketOK = true
+		st.Running = true
+		var data map[string]any
+		if json.Unmarshal(pingResp.Data, &data) == nil {
+			if up, ok := data["uptime"].(string); ok {
+				st.Uptime = up
+			}
+			if ver, ok := data["version"].(string); ok {
+				st.Version = ver
+			}
+		}
+		if verResp, vErr := CallUnix(cfg.SocketPath, core.Request{Tool: "version", Caller: "status"}, 2*time.Second); vErr == nil && verResp.OK {
+			var vData map[string]any
+			if json.Unmarshal(verResp.Data, &vData) == nil {
+				if mode, ok := vData["policy_mode"].(string); ok {
+					st.PolicyMode = mode
+				}
+				if audit, ok := vData["audit_path"].(string); ok {
+					st.AuditPath = audit
+				}
+			}
+		}
+	}
+
+	return st
+}
+
+// StartDaemon запускает sysagentd в фоновом режиме (отвязанным от терминала) и ждёт готовности сокета.
+func StartDaemon(cfg config.Config, cfgPath string) (DaemonStatus, bool, error) {
+	if up, _ := IsRunningFast(cfg); up {
+		st := GetStatus(cfg)
+		if st.Running && st.SocketOK {
+			return st, true, nil
+		}
+	}
+
+	exePath, err := os.Executable()
+	if err != nil {
+		return DaemonStatus{}, false, fmt.Errorf("не удалось определить путь к исполняемому файлу: %w", err)
+	}
+
+	pidFile := PIDPath(cfg)
+	logFile := DaemonLogPath(cfg)
+
+	if err := os.MkdirAll(filepath.Dir(pidFile), 0o750); err != nil {
+		return DaemonStatus{}, false, fmt.Errorf("создание каталога PID %s: %w", filepath.Dir(pidFile), err)
+	}
+	if err := os.MkdirAll(filepath.Dir(logFile), 0o750); err != nil {
+		return DaemonStatus{}, false, fmt.Errorf("создание каталога логов %s: %w", filepath.Dir(logFile), err)
+	}
+
+	lf, err := os.OpenFile(logFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o640)
+	if err != nil {
+		return DaemonStatus{}, false, fmt.Errorf("открытие лог-файла демона %s: %w", logFile, err)
+	}
+	defer lf.Close()
+
+	daemonArgs := []string{"daemon", "--socket", cfg.SocketPath, "--mode", cfg.Policy.Mode}
+	if strings.TrimSpace(cfgPath) != "" {
+		daemonArgs = append(daemonArgs, "--config", cfgPath)
+	}
+
+	cmd := exec.Command(exePath, daemonArgs...)
+	cmd.Stdout = lf
+	cmd.Stderr = lf
+	cmd.Stdin = nil
+	cmd.Env = append(os.Environ(), "SYSAGENTD_AUDIT="+cfg.Audit.Path)
+	// Отвязываем дочерний процесс в собственную сессию, чтобы закрытие SSH не останавливало демона.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+
+	if err := cmd.Start(); err != nil {
+		return DaemonStatus{}, false, fmt.Errorf("ошибка запуска фонового процесса: %w", err)
+	}
+
+	pid := cmd.Process.Pid
+	_ = os.WriteFile(pidFile, []byte(strconv.Itoa(pid)+"\n"), 0o640)
+
+	// Снимаем код завершения в фоне, если родительская консоль остаётся открытой (защита от zombie-процессов).
+	go func() {
+		_ = cmd.Wait()
+	}()
+
+	// Ждём фактического поднятия Unix-сокета (до 3 секунд).
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, statErr := os.Stat(cfg.SocketPath); statErr == nil {
+			st := GetStatus(cfg)
+			if st.Running && st.SocketOK {
+				return st, false, nil
+			}
+		}
+		if !isProcessAlive(pid) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	tail := strings.Join(ReadTailLines(logFile, 5), "\n")
+	return DaemonStatus{}, false, fmt.Errorf("демон не вышел на связь по сокету %s; последние строки лога:\n%s", cfg.SocketPath, tail)
+}
+
+// StopDaemon штатно завершает работающего демона сигналом SIGTERM и ждёт остановки.
+func StopDaemon(cfg config.Config) (int, bool, error) {
+	pidFile := PIDPath(cfg)
+	pid := resolveRunningPID(pidFile, cfg.SocketPath)
+	if pid <= 0 {
+		_ = os.Remove(pidFile)
+		return 0, false, nil
+	}
+
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return pid, true, fmt.Errorf("не удалось отправить SIGTERM процессу %d: %w", pid, err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if !isProcessAlive(pid) {
+			_ = os.Remove(pidFile)
+			_ = os.Remove(cfg.SocketPath)
+			return pid, true, nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	return pid, true, fmt.Errorf("процесс %d не завершился за 5 секунд", pid)
+}
+
+// RestartDaemon выполняет штатную остановку и чистый запуск демона.
+func RestartDaemon(cfg config.Config, cfgPath string) (int, DaemonStatus, error) {
+	oldPID, _, err := StopDaemon(cfg)
+	if err != nil {
+		return oldPID, DaemonStatus{}, err
+	}
+	st, _, startErr := StartDaemon(cfg, cfgPath)
+	return oldPID, st, startErr
+}
+
+// ReadTailLines читает последние n непустых строк текстового файла (аудит или лог демона).
+func ReadTailLines(path string, n int) []string {
+	if n <= 0 {
+		n = 10
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return lines
+}
+
+func resolveRunningPID(pidFile, socketPath string) int {
+	if raw, err := os.ReadFile(pidFile); err == nil {
+		if pid, convErr := strconv.Atoi(strings.TrimSpace(string(raw))); convErr == nil && pid > 1 {
+			if isSysagentDaemonPID(pid) {
+				return pid
+			}
+		}
+	}
+	return scanProcForDaemon(socketPath)
+}
+
+// isProcessAlive проверяет, что процесс существует и не находится в состоянии zombie (Z).
+func isProcessAlive(pid int) bool {
+	if pid <= 1 {
+		return false
+	}
+	if syscall.Kill(pid, 0) != nil {
+		return false
+	}
+	raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if strings.HasPrefix(line, "State:") && strings.Contains(line, "\tZ") {
+			return false
+		}
+	}
+	return true
+}
+
+func isSysagentDaemonPID(pid int) bool {
+	if !isProcessAlive(pid) {
+		return false
+	}
+	raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil || len(raw) == 0 {
+		return false
+	}
+	parts := bytes.Split(bytes.TrimRight(raw, "\x00"), []byte{0})
+	if len(parts) < 2 {
+		return false
+	}
+	exeBase := filepath.Base(string(parts[0]))
+	return strings.Contains(exeBase, "sysagent") && string(parts[1]) == "daemon"
+}
+
+func scanProcForDaemon(socketPath string) int {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return 0
+	}
+	selfPID := os.Getpid()
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		pid, convErr := strconv.Atoi(entry.Name())
+		if convErr != nil || pid <= 1 || pid == selfPID {
+			continue
+		}
+		if !isSysagentDaemonPID(pid) {
+			continue
+		}
+		raw, readErr := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+		if readErr != nil {
+			continue
+		}
+		cmdStr := strings.ReplaceAll(string(raw), "\x00", " ")
+		if socketPath == "" || strings.Contains(cmdStr, socketPath) || !strings.Contains(cmdStr, "--socket") {
+			return pid
+		}
+	}
+	return 0
+}
+
+func readProcRSSKB(pid int) int64 {
+	raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if strings.HasPrefix(line, "VmRSS:") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				val, convErr := strconv.ParseInt(fields[1], 10, 64)
+				if convErr == nil {
+					return val
+				}
+			}
+		}
+	}
+	return 0
+}
+
+sysagent/internal/ipc/unix.go
++126
+// Пакет ipc реализует локальный транспорт между CLI/адаптерами и демоном
+// поверх Unix domain socket без открытия сетевых TCP-портов.
+package ipc
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"net"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"sysagent/internal/core"
+)
+
+const (
+	// Максимальный размер входящего JSON-запроса (64 КиБ) — защита от переполнения памяти.
+	maxRequestBytes = 64 * 1024
+	dialTimeout     = 3 * time.Second
+)
+
+// ServeUnix запускает прослушивание Unix-сокета и обрабатывает запросы до отмены ctx.
+func ServeUnix(ctx context.Context, socketPath string, engine *core.Engine) error {
+	if err := os.MkdirAll(filepath.Dir(socketPath), 0o750); err != nil {
+		return fmt.Errorf("создание каталога для сокета %s: %w", socketPath, err)
+	}
+	// Удаляем старый файл сокета, если остался после некорректного завершения.
+	_ = os.Remove(socketPath)
+
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		return fmt.Errorf("открытие Unix-сокета %s: %w", socketPath, err)
+	}
+	if chmodErr := os.Chmod(socketPath, 0o660); chmodErr != nil {
+		_ = listener.Close()
+		_ = os.Remove(socketPath)
+		return fmt.Errorf("установка прав 0660 на сокет %s: %w", socketPath, chmodErr)
+	}
+
+	var wg sync.WaitGroup
+	go func() {
+		<-ctx.Done()
+		_ = listener.Close()
+	}()
+
+	defer func() {
+		_ = listener.Close()
+		wg.Wait()
+		_ = os.Remove(socketPath)
+	}()
+
+	log.Printf("sysagentd %s запущен: socket=%s mode=%s pid=%d",
+		core.Version, socketPath, engine.Config().Policy.Mode, os.Getpid())
+
+	connDeadline := time.Duration(engine.Config().Policy.CommandTimeoutSec+10) * time.Second
+
+	for {
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			if ctx.Err() != nil || errors.Is(acceptErr, net.ErrClosed) {
+				return nil
+			}
+			log.Printf("предупреждение: ошибка accept: %v", acceptErr)
+			continue
+		}
+		wg.Add(1)
+		go func(c net.Conn) {
+			defer wg.Done()
+			handleConn(ctx, c, engine, connDeadline)
+		}(conn)
+	}
+}
+
+func handleConn(ctx context.Context, conn net.Conn, engine *core.Engine, deadline time.Duration) {
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(deadline))
+
+	var req core.Request
+	dec := json.NewDecoder(io.LimitReader(conn, maxRequestBytes))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		_ = json.NewEncoder(conn).Encode(core.Response{
+			OK:      false,
+			Error:   "некорректный JSON-запрос: " + err.Error(),
+			Elapsed: "0s",
+		})
+		return
+	}
+
+	if req.Caller == "" {
+		req.Caller = "unix-socket"
+	}
+	resp := engine.Execute(ctx, req)
+	_ = json.NewEncoder(conn).Encode(resp)
+}
+
+// CallUnix отправляет один запрос демону через Unix-сокет и возвращает структурированный ответ.
+func CallUnix(socketPath string, req core.Request, timeout time.Duration) (core.Response, error) {
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	conn, err := net.DialTimeout("unix", socketPath, dialTimeout)
+	if err != nil {
+		return core.Response{}, err
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(timeout))
+
+	if req.Caller == "" {
+		req.Caller = "cli"
+	}
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
+		return core.Response{}, fmt.Errorf("отправка запроса демону: %w", err)
+	}
+
+	var resp core.Response
+	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+		return core.Response{}, fmt.Errorf("чтение ответа демона: %w", err)
+	}
+	return resp, nil
+}
+
+sysagent/internal/ipc/unix_test.go
++67
+package ipc
+
+import (
+	"context"
+	"encoding/json"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"sysagent/internal/config"
+	"sysagent/internal/core"
+)
+
+func TestUnixSocketRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	sock := filepath.Join(dir, "sysagentd.sock")
+
+	cfg := config.Default()
+	cfg.SocketPath = sock
+	cfg.Audit.Path = filepath.Join(dir, "audit.jsonl")
+
+	eng, err := core.NewEngine(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- ServeUnix(ctx, sock, eng)
+	}()
+
+	// Дожидаемся появления сокета.
+	deadline := time.Now().Add(2 * time.Second)
+	var resp core.Response
+	var callErr error
+	for time.Now().Before(deadline) {
+		resp, callErr = CallUnix(sock, core.Request{Tool: "ping"}, 3*time.Second)
+		if callErr == nil {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if callErr != nil {
+		cancel()
+		t.Fatalf("не удалось достучаться до сокета: %v", callErr)
+	}
+	if !resp.OK {
+		cancel()
+		t.Fatalf("ожидался успешный ответ на ping, получено: %s", resp.Error)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	if payload["pong"] != true {
+		cancel()
+		t.Fatalf("неожиданный ответ ping: %+v", payload)
+	}
+
+	cancel()
+	if serveErr := <-errCh; serveErr != nil {
+		t.Fatalf("ошибка завершения сервера сокета: %v", serveErr)
+	}
+}
+
+sysagent/internal/llm/router.go
++737
+// Пакет llm реализует каскадный клиент языковых моделей (OpenAI-совместимый /chat/completions:
+// GitHub Models, Mistral API, Ollama, OpenRouter и др.) с автоматическим обходом лимитов (HTTP 429),
+// ручным выбором основной модели и безопасным вызовом инструментов ядра sysagentd.
+package llm
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"sysagent/internal/core"
+)
+
+const (
+	DefaultRootLLMConfig = "/etc/sysagentd/llm.jsonc"
+	maxToolRounds        = 6
+	maxHistoryMessages   = 16
+	defaultCooldownSec   = 90
+	defaultTimeoutSec    = 45
+)
+
+const systemPromptRU = `Ты — встроенный ИИ-ассистент системного администратора в агенте диагностики sysagentd.
+Отвечай всегда кратко, чётко и по делу на русском языке.
+
+Правила работы:
+1. Никогда не выдумывай состояние сервера, служб, дисков, памяти или сети — всегда вызывай доступные инструменты диагностики, чтобы получить реальные данные.
+2. Сначала используй безопасные инструменты чтения (read).
+3. Инструменты изменения (write) вызывай ТОЛЬКО тогда, когда пользователь явно попросил выполнить действие (например, перезапустить службу). Ядро само запросит у администратора подтверждение [y/N].
+4. Если администратор отклонил подтверждение или активен режим readonly — НЕ вызывай инструмент повторно, а напиши точную и безопасную команду для ручной проверки/выполнения.
+5. Никогда не проси у пользователя пароли, приватные ключи или API-токены.`
+
+// Profile описывает одну подключённую языковую модель.
+type Profile struct {
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	BaseURL    string `json:"base_url"`
+	KeyRef     string `json:"key_ref,omitempty"`
+	APIKey     string `json:"api_key,omitempty"`
+	APIKeyEnv  string `json:"api_key_env,omitempty"`
+	Model      string `json:"model"`
+	ProxyURL   string `json:"proxy_url,omitempty"`
+	TimeoutSec int    `json:"timeout_sec,omitempty"`
+}
+
+// Config хранит ключи и список профилей моделей.
+type Config struct {
+	Keys          map[string]string `json:"keys"`
+	PromptFile    string            `json:"prompt_file,omitempty"`
+	ActiveProfile string            `json:"active_profile"` // "auto" или ID конкретного профиля
+	Fallback      bool              `json:"fallback"`       // подстраховка другой моделью при HTTP 429/сбое
+	CooldownSec   int               `json:"cooldown_sec"`
+	Profiles      []Profile         `json:"profiles"`
+}
+
+// Message представляет одно сообщение в истории диалога.
+type Message struct {
+	Role       string     `json:"role"`
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+}
+
+// ToolCall описывает вызов функции, запрошенный моделью.
+type ToolCall struct {
+	ID       string       `json:"id"`
+	Type     string       `json:"type"`
+	Function FunctionCall `json:"function"`
+}
+
+// FunctionCall содержит имя и JSON-аргументы вызываемой функции.
+type FunctionCall struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// ToolExecutor выполняет инструмент через ядро/сокет (включая интерактивный запрос [y/N] при необходимости).
+type ToolExecutor func(ctx context.Context, toolName string, args map[string]string) (string, error)
+
+// EventLogger выводит промежуточные шаги в консоль (вызовы инструментов, переключение при 429).
+type EventLogger func(msg string)
+
+// Router управляет выбором модели, кулдаунами при лимитах 429 и историей диалога.
+type Router struct {
+	mu        sync.Mutex
+	cfgPath   string
+	cfg       Config
+	cooldowns map[string]time.Time
+	history   []Message
+}
+
+// DefaultConfigPath определяет путь к защищённому файлу конфигурации ИИ (0600).
+func DefaultConfigPath() string {
+	if env := strings.TrimSpace(os.Getenv("SYSAGENTD_LLM_CONFIG")); env != "" {
+		return env
+	}
+	if os.Geteuid() == 0 {
+		return DefaultRootLLMConfig
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".config", "sysagentd", "llm.jsonc")
+	}
+	return DefaultRootLLMConfig
+}
+
+const defaultConfigTemplate = `{
+  // Защищённый файл настроек ИИ sysagentd (права 0600 — доступен только владельцу).
+  // Достаточно вставить хотя бы ОДИН бесплатный ключ ("github" или "mistral"),
+  // а если заполнить оба — агент автоматически объединит их лимиты в единый каскад!
+  "keys": {
+    // 1) Бесплатный GitHub Token: https://github.com/settings/personal-access-tokens/new
+    //    Account permissions -> Models -> Read-only (доступ к репозиториям НЕ нужен)
+    "github": "",
+
+    // 2) Бесплатный ключ Mistral AI (тариф Experiment): https://console.mistral.ai/api-keys
+    "mistral": ""
+  },
+
+  // Путь к внешнему файлу системного промпта (пусто = /etc/sysagentd/prompt.md рядом с этим файлом;
+  // файл перечитывается при каждом вопросе без пересборки и без перезапуска демона!)
+  "prompt_file": "",
+
+  // "auto" — автоматический выбор первой доступной модели, либо id профиля (например "mistral-small")
+  "active_profile": "auto",
+
+  // Автоматически переключаться на следующую модель при лимите (HTTP 429) или таймауте
+  "fallback": true,
+  "cooldown_sec": 90,
+
+  "profiles": [
+    {
+      "id": "gh-mini",
+      "title": "GitHub GPT-4.1-mini (быстрый, высокий суточный лимит)",
+      "base_url": "https://models.github.ai/inference",
+      "key_ref": "github",
+      "model": "openai/gpt-4.1-mini"
+    },
+    {
+      "id": "mistral-small",
+      "title": "Mistral Small (большой бесплатный пул)",
+      "base_url": "https://api.mistral.ai/v1",
+      "key_ref": "mistral",
+      "model": "mistral-small-latest"
+    },
+    {
+      "id": "gh-gpt41",
+      "title": "GitHub GPT-4.1 (глубокий анализ инцидентов)",
+      "base_url": "https://models.github.ai/inference",
+      "key_ref": "github",
+      "model": "openai/gpt-4.1"
+    },
+    {
+      "id": "gh-deepseek",
+      "title": "GitHub DeepSeek-V3 (альтернативное мнение)",
+      "base_url": "https://models.github.ai/inference",
+      "key_ref": "github",
+      "model": "deepseek/DeepSeek-V3-0324"
+    },
+    {
+      "id": "mistral-codestral",
+      "title": "Mistral Codestral (разбор логов и служб)",
+      "base_url": "https://api.mistral.ai/v1",
+      "key_ref": "mistral",
+      "model": "codestral-latest"
+    }
+  ]
+}
+`
+
+// EnsureConfigFile создаёт шаблоны llm.jsonc и prompt.md с правами 0600, если они ещё не существуют.
+func EnsureConfigFile(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	promptPath := filepath.Join(filepath.Dir(path), "prompt.md")
+	if _, err := os.Stat(promptPath); err != nil {
+		_ = os.WriteFile(promptPath, []byte(systemPromptRU+"\n"), 0o600)
+	}
+	if _, err := os.Stat(path); err == nil {
+		_ = os.Chmod(path, 0o600)
+		return nil
+	}
+	return os.WriteFile(path, []byte(defaultConfigTemplate), 0o600)
+}
+
+// NewRouter создаёт и загружает каскадный роутер моделей.
+func NewRouter(path string) (*Router, error) {
+	if strings.TrimSpace(path) == "" {
+		path = DefaultConfigPath()
+	}
+	if err := EnsureConfigFile(path); err != nil {
+		return nil, err
+	}
+	r := &Router{
+		cfgPath:   path,
+		cooldowns: make(map[string]time.Time),
+	}
+	if err := r.Reload(); err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+// ConfigPath возвращает путь к используемому файлу конфигурации ИИ.
+func (r *Router) ConfigPath() string { return r.cfgPath }
+
+// PromptPath возвращает путь к внешнему файлу системного промпта.
+func (r *Router) PromptPath() string {
+	r.mu.Lock()
+	custom := strings.TrimSpace(r.cfg.PromptFile)
+	r.mu.Unlock()
+	if custom != "" {
+		return custom
+	}
+	return filepath.Join(filepath.Dir(r.cfgPath), "prompt.md")
+}
+
+func (r *Router) loadSystemPrompt() string {
+	p := r.PromptPath()
+	if raw, err := os.ReadFile(p); err == nil {
+		if s := strings.TrimSpace(string(raw)); s != "" {
+			return s
+		}
+	}
+	_ = os.WriteFile(p, []byte(systemPromptRU+"\n"), 0o600)
+	return systemPromptRU
+}
+
+// Reload перечитывает llm.jsonc с диска на лету без перезапуска демона.
+func (r *Router) Reload() error {
+	raw, err := os.ReadFile(r.cfgPath)
+	if err != nil {
+		return err
+	}
+	var cfg Config
+	if err := json.Unmarshal(stripJSONC(raw), &cfg); err != nil {
+		return fmt.Errorf("ошибка чтения %s: %w", r.cfgPath, err)
+	}
+	if cfg.ActiveProfile == "" {
+		cfg.ActiveProfile = "auto"
+	}
+	if cfg.CooldownSec <= 0 {
+		cfg.CooldownSec = defaultCooldownSec
+	}
+	r.mu.Lock()
+	r.cfg = cfg
+	r.mu.Unlock()
+	return nil
+}
+
+// ResetHistory очищает контекст текущего диалога в консоли.
+func (r *Router) ResetHistory() {
+	r.mu.Lock()
+	r.history = nil
+	r.mu.Unlock()
+}
+
+// ProfileStatus возвращает сводку по всем профилям (без раскрытия ключей!).
+type ProfileStatus struct {
+	ID            string
+	Title         string
+	Model         string
+	HasKey        bool
+	CoolingSecRem int
+}
+
+// Status возвращает текущий режим выбора, путь к конфигу и список профилей.
+func (r *Router) Status() (active string, readyCount int, items []ProfileStatus) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	now := time.Now()
+	active = r.cfg.ActiveProfile
+	for _, p := range r.cfg.Profiles {
+		hasKey := r.resolveKeyLocked(p) != ""
+		if hasKey {
+			readyCount++
+		}
+		rem := 0
+		if until, ok := r.cooldowns[p.ID]; ok && until.After(now) {
+			rem = int(until.Sub(now).Seconds())
+		}
+		items = append(items, ProfileStatus{
+			ID:            p.ID,
+			Title:         p.Title,
+			Model:         p.Model,
+			HasKey:        hasKey,
+			CoolingSecRem: rem,
+		})
+	}
+	return active, readyCount, items
+}
+
+// SetActiveProfile переключает активную модель ("auto" или конкретный ID профиля) в памяти.
+func (r *Router) SetActiveProfile(id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if id == "auto" {
+		r.cfg.ActiveProfile = "auto"
+		return nil
+	}
+	for _, p := range r.cfg.Profiles {
+		if p.ID == id {
+			r.cfg.ActiveProfile = id
+			return nil
+		}
+	}
+	return fmt.Errorf("профиль %q не найден", id)
+}
+
+func (r *Router) resolveKeyLocked(p Profile) string {
+	if strings.TrimSpace(p.APIKey) != "" {
+		return strings.TrimSpace(p.APIKey)
+	}
+	if p.KeyRef != "" && r.cfg.Keys != nil {
+		if v := strings.TrimSpace(r.cfg.Keys[p.KeyRef]); v != "" {
+			return v
+		}
+	}
+	if p.APIKeyEnv != "" {
+		if v := strings.TrimSpace(os.Getenv(p.APIKeyEnv)); v != "" {
+			return v
+		}
+	}
+	// Разрешаем локальную Ollama без API-ключа.
+	if strings.Contains(p.BaseURL, "127.0.0.1") || strings.Contains(p.BaseURL, "localhost") || strings.Contains(p.BaseURL, "11434") {
+		return "ollama-local"
+	}
+	return ""
+}
+
+// candidateOrder строит очередь моделей для текущего запроса с учётом active_profile и остывания после 429.
+func (r *Router) candidateOrder() ([]Profile, map[string]string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	now := time.Now()
+	keys := make(map[string]string)
+	var fresh []Profile
+	var cooling []Profile
+
+	push := func(p Profile) {
+		k := r.resolveKeyLocked(p)
+		if k == "" {
+			return
+		}
+		keys[p.ID] = k
+		if until, ok := r.cooldowns[p.ID]; ok && until.After(now) {
+			cooling = append(cooling, p)
+		} else {
+			fresh = append(fresh, p)
+		}
+	}
+
+	if r.cfg.ActiveProfile != "" && r.cfg.ActiveProfile != "auto" {
+		for _, p := range r.cfg.Profiles {
+			if p.ID == r.cfg.ActiveProfile {
+				push(p)
+			}
+		}
+		if r.cfg.Fallback {
+			for _, p := range r.cfg.Profiles {
+				if p.ID != r.cfg.ActiveProfile {
+					push(p)
+				}
+			}
+		}
+	} else {
+		for _, p := range r.cfg.Profiles {
+			push(p)
+		}
+	}
+
+	return append(fresh, cooling...), keys
+}
+
+func (r *Router) markCooldown(profileID string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	sec := r.cfg.CooldownSec
+	if sec <= 0 {
+		sec = defaultCooldownSec
+	}
+	r.cooldowns[profileID] = time.Now().Add(time.Duration(sec) * time.Second)
+	return sec
+}
+
+// ErrNoKeys возвращается, когда ни для одного профиля ещё не прописан API-ключ.
+var ErrNoKeys = errors.New("не настроен ни один API-ключ в llm.jsonc")
+
+type apiError struct {
+	StatusCode int
+	Retryable  bool
+	Message    string
+}
+
+func (e *apiError) Error() string { return e.Message }
+
+// Ask отправляет вопрос пользователя в каскад моделей, выполняет разрешённые инструменты ядра и возвращает ответ.
+func (r *Router) Ask(
+	ctx context.Context,
+	userQuestion string,
+	specs []core.ToolSpec,
+	execTool ToolExecutor,
+	onEvent EventLogger,
+) (answer string, usedProfile Profile, err error) {
+	_ = r.Reload()
+
+	candidates, keyMap := r.candidateOrder()
+	if len(candidates) == 0 {
+		return "", Profile{}, ErrNoKeys
+	}
+
+	apiTools, llmToReal := encodeTools(specs)
+	sysPrompt := r.loadSystemPrompt()
+
+	r.mu.Lock()
+	baseHistory := make([]Message, len(r.history))
+	copy(baseHistory, r.history)
+	r.mu.Unlock()
+
+	userMsg := Message{Role: "user", Content: userQuestion}
+	turnMessages := append(baseHistory, userMsg)
+
+	idx := 0
+	current := candidates[idx]
+
+	for round := 0; round < maxToolRounds; round++ {
+		var assistantMsg Message
+		var callErr error
+
+		for idx < len(candidates) {
+			current = candidates[idx]
+			assistantMsg, callErr = callCompletionAPI(ctx, current, keyMap[current.ID], sysPrompt, turnMessages, apiTools)
+			if callErr == nil {
+				break
+			}
+			var ae *apiError
+			if errors.As(callErr, &ae) && ae.Retryable && idx+1 < len(candidates) {
+				sec := r.markCooldown(current.ID)
+				idx++
+				next := candidates[idx]
+				if onEvent != nil {
+					onEvent(fmt.Sprintf("⚡ Лимит/сбой у %s (HTTP %d, пауза %dс) → авто-переключение на %s",
+						current.ID, ae.StatusCode, sec, next.Title))
+				}
+				continue
+			}
+			return "", current, callErr
+		}
+
+		if len(assistantMsg.ToolCalls) == 0 {
+			finalText := strings.TrimSpace(assistantMsg.Content)
+			turnMessages = append(turnMessages, Message{Role: "assistant", Content: finalText})
+			r.saveHistory(turnMessages)
+			return finalText, current, nil
+		}
+
+		turnMessages = append(turnMessages, assistantMsg)
+
+		for _, tc := range assistantMsg.ToolCalls {
+			realName, ok := llmToReal[tc.Function.Name]
+			if !ok {
+				realName = strings.ReplaceAll(tc.Function.Name, "__", ".")
+			}
+			parsedArgs := parseToolArguments(tc.Function.Arguments)
+
+			if onEvent != nil {
+				onEvent(fmt.Sprintf("↳ ИИ вызывает %s(%s)", realName, formatShortArgs(parsedArgs)))
+			}
+
+			toolOutput, execErr := execTool(ctx, realName, parsedArgs)
+			if execErr != nil {
+				toolOutput = fmt.Sprintf(`{"ok":false,"error":%q}`, execErr.Error())
+			}
+
+			turnMessages = append(turnMessages, Message{
+				Role:       "tool",
+				ToolCallID: tc.ID,
+				Content:    toolOutput,
+			})
+		}
+	}
+
+	return "", current, fmt.Errorf("превышен лимит шагов вызова инструментов (%d)", maxToolRounds)
+}
+
+func (r *Router) saveHistory(msgs []Message) {
+	// В долгосрочной истории храним только компактные реплики user/assistant,
+	// чтобы сырые JSON-выводы прошлых проверок не сжигали бесплатные лимиты токенов!
+	var compact []Message
+	for _, m := range msgs {
+		if (m.Role == "user" || m.Role == "assistant") && len(m.ToolCalls) == 0 && strings.TrimSpace(m.Content) != "" {
+			compact = append(compact, Message{Role: m.Role, Content: m.Content})
+		}
+	}
+	if len(compact) > maxHistoryMessages {
+		compact = compact[len(compact)-maxHistoryMessages:]
+	}
+	r.mu.Lock()
+	r.history = compact
+	r.mu.Unlock()
+}
+
+type chatRequest struct {
+	Model       string        `json:"model"`
+	Messages    []Message     `json:"messages"`
+	Tools       []map[string]any `json:"tools,omitempty"`
+	Temperature float64       `json:"temperature"`
+}
+
+type chatResponse struct {
+	Choices []struct {
+		Message Message `json:"message"`
+	} `json:"choices"`
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error,omitempty"`
+}
+
+func callCompletionAPI(
+	ctx context.Context,
+	p Profile,
+	apiKey string,
+	sysPrompt string,
+	history []Message,
+	tools []map[string]any,
+) (Message, error) {
+	timeoutSec := p.TimeoutSec
+	if timeoutSec <= 0 {
+		timeoutSec = defaultTimeoutSec
+	}
+
+	transport := &http.Transport{}
+	if strings.TrimSpace(p.ProxyURL) != "" {
+		u, err := url.Parse(strings.TrimSpace(p.ProxyURL))
+		if err != nil {
+			return Message{}, fmt.Errorf("некорректный proxy_url в профиле %s: %w", p.ID, err)
+		}
+		transport.Proxy = http.ProxyURL(u)
+	}
+	client := &http.Client{
+		Timeout:   time.Duration(timeoutSec) * time.Second,
+		Transport: transport,
+	}
+
+	wireMsgs := make([]Message, 0, len(history)+1)
+	wireMsgs = append(wireMsgs, Message{Role: "system", Content: sysPrompt})
+	wireMsgs = append(wireMsgs, history...)
+
+	payload := chatRequest{
+		Model:       p.Model,
+		Messages:    wireMsgs,
+		Tools:       tools,
+		Temperature: 0.2,
+	}
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return Message{}, err
+	}
+
+	reqCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
+	defer cancel()
+
+	endpoint := buildCompletionsURL(p.BaseURL)
+	httpReq, err := http.NewRequestWithContext(reqCtx, http.MethodPost, endpoint, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return Message{}, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return Message{}, &apiError{
+			StatusCode: 0,
+			Retryable:  true,
+			Message:    fmt.Sprintf("сетевой сбой %s: %v", p.ID, err),
+		}
+	}
+	defer resp.Body.Close()
+
+	respBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if resp.StatusCode >= 300 {
+		retryable := resp.StatusCode == 429 || resp.StatusCode == 408 || resp.StatusCode >= 500 ||
+			resp.StatusCode == 401 || resp.StatusCode == 403
+		shortBody := strings.TrimSpace(string(respBytes))
+		if len(shortBody) > 220 {
+			shortBody = shortBody[:220] + "..."
+		}
+		return Message{}, &apiError{
+			StatusCode: resp.StatusCode,
+			Retryable:  retryable,
+			Message:    fmt.Sprintf("ошибка API %s (HTTP %d): %s", p.ID, resp.StatusCode, shortBody),
+		}
+	}
+
+	var parsed chatResponse
+	if err := json.Unmarshal(respBytes, &parsed); err != nil {
+		return Message{}, fmt.Errorf("некорректный JSON от %s: %w", p.ID, err)
+	}
+	if len(parsed.Choices) == 0 {
+		return Message{}, &apiError{
+			StatusCode: resp.StatusCode,
+			Retryable:  true,
+			Message:    fmt.Sprintf("пустой ответ choices от %s", p.ID),
+		}
+	}
+	msg := parsed.Choices[0].Message
+	if msg.Role == "" {
+		msg.Role = "assistant"
+	}
+	return msg, nil
+}
+
+func buildCompletionsURL(base string) string {
+	b := strings.TrimRight(strings.TrimSpace(base), "/")
+	if strings.HasSuffix(b, "/chat/completions") {
+		return b
+	}
+	return b + "/chat/completions"
+}
+
+// encodeTools преобразует ToolSpec ядра в формат OpenAI/Mistral function calling (заменяя '.' на '__').
+func encodeTools(specs []core.ToolSpec) ([]map[string]any, map[string]string) {
+	var out []map[string]any
+	mapping := make(map[string]string, len(specs))
+
+	for _, sp := range specs {
+		// Служебный список схем самой модели передавать не нужно — все схемы уже у неё перед глазами.
+		if sp.Name == "core.tools" {
+			continue
+		}
+		safeName := strings.ReplaceAll(sp.Name, ".", "__")
+		mapping[safeName] = sp.Name
+
+		out = append(out, map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name":        safeName,
+				"description": fmt.Sprintf("[%s] %s", sp.Risk, sp.Description),
+				"parameters":  sp.InputJSONSchema(),
+			},
+		})
+	}
+	return out, mapping
+}
+
+func parseToolArguments(raw string) map[string]string {
+	out := make(map[string]string)
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "{}" {
+		return out
+	}
+	var generic map[string]any
+	if err := json.Unmarshal([]byte(raw), &generic); err != nil {
+		return out
+	}
+	for k, v := range generic {
+		if v == nil {
+			continue
+		}
+		out[k] = fmt.Sprint(v)
+	}
+	return out
+}
+
+func formatShortArgs(args map[string]string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(args))
+	for k, v := range args {
+		parts = append(parts, fmt.Sprintf("%s=%s", k, v))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// stripJSONC удаляет комментарии // и /* ... */ вне строковых литералов JSON.
+func stripJSONC(src []byte) []byte {
+	out := make([]byte, 0, len(src))
+	inStr := false
+	escaped := false
+
+	for i := 0; i < len(src); i++ {
+		c := src[i]
+		if inStr {
+			out = append(out, c)
+			if escaped {
+				escaped = false
+				continue
+			}
+			if c == '\\' {
+				escaped = true
+			} else if c == '"' {
+				inStr = false
+			}
+			continue
+		}
+		if c == '"' {
+			inStr = true
+			out = append(out, c)
+			continue
+		}
+		if c == '/' && i+1 < len(src) && src[i+1] == '/' {
+			i += 2
+			for i < len(src) && src[i] != '\n' {
+				i++
+			}
+			if i < len(src) {
+				out = append(out, '\n')
+			}
+			continue
+		}
+		if c == '/' && i+1 < len(src) && src[i+1] == '*' {
+			i += 2
+			for i+1 < len(src) && !(src[i] == '*' && src[i+1] == '/') {
+				i++
+			}
+			i++
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+sysagent/internal/llm/router_test.go
++109
+package llm
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
+	"testing"
+
+	"sysagent/internal/core"
+)
+
+func TestRouterFailover429AndToolCall(t *testing.T) {
+	// Сервер №1 всегда отвечает HTTP 429 (имитация исчерпания бесплатного лимита).
+	rateLimited := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"message":"rate limit exceeded"}}`))
+	}))
+	defer rateLimited.Close()
+
+	// Сервер №2: на 1-м шаге вызывает инструмент local__summary, на 2-м — выдаёт русский ответ.
+	var step int32
+	healthy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&step, 1)
+		w.Header().Set("Content-Type", "application/json")
+		if n == 1 {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"choices": []map[string]any{{
+					"message": map[string]any{
+						"role":    "assistant",
+						"content": "",
+						"tool_calls": []map[string]any{{
+							"id":   "call00001",
+							"type": "function",
+							"function": map[string]any{
+								"name":      "local__summary",
+								"arguments": `{}`,
+							},
+						}},
+					},
+				}},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{
+				"message": map[string]any{
+					"role":    "assistant",
+					"content": "Сервер agent работает штатно, память в норме.",
+				},
+			}},
+		})
+	}))
+	defer healthy.Close()
+
+	cfgFile := filepath.Join(t.TempDir(), "llm.jsonc")
+	cfgContent := `{
+  // проверка комментариев JSONC
+  "keys": { "k1": "secret1", "k2": "secret2" },
+  "active_profile": "auto",
+  "fallback": true,
+  "cooldown_sec": 60,
+  "profiles": [
+    { "id": "limited", "title": "Limited Model", "base_url": "` + rateLimited.URL + `", "key_ref": "k1", "model": "m1" },
+    { "id": "backup",  "title": "Backup Model",  "base_url": "` + healthy.URL + `",     "key_ref": "k2", "model": "m2" }
+  ]
+}`
+	if err := os.WriteFile(cfgFile, []byte(cfgContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	router, err := NewRouter(cfgFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var toolCalled string
+	var events []string
+
+	ans, used, err := router.Ask(
+		context.Background(),
+		"как дела у сервера?",
+		[]core.ToolSpec{{Name: "local.summary", Module: "local", Description: "сводка", Risk: core.RiskRead}},
+		func(_ context.Context, toolName string, _ map[string]string) (string, error) {
+			toolCalled = toolName
+			return `{"hostname":"agent","used_percent":15.3}`, nil
+		},
+		func(ev string) { events = append(events, ev) },
+	)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка Ask: %v", err)
+	}
+	if used.ID != "backup" {
+		t.Fatalf("ожидалось переключение на backup, получен %s", used.ID)
+	}
+	if toolCalled != "local.summary" {
+		t.Fatalf("ожидался вызов local.summary, получен %q", toolCalled)
+	}
+	if !strings.Contains(ans, "штатно") {
+		t.Fatalf("неожиданный текст ответа: %q", ans)
+	}
+	if len(events) < 2 {
+		t.Fatalf("ожидались события failover + вызова инструмента, получено: %v", events)
+	}
+}
+
+sysagent/internal/modules/local/local.go
++491
+// Пакет local реализует модуль локальной диагностики Linux-сервера:
+//   - local.summary         (read)  — сводка хоста: ОС, ядро, uptime, CPU load, RAM/Swap, диски;
+//   - local.logs            (read)  — ошибки из journalctl со склейкой повторов (экономия токенов ИИ);
+//   - local.failed          (read)  — список упавших служб systemd;
+//   - local.unit            (read)  — подробный статус конкретной службы systemd;
+//   - local.netping         (read)  — безопасная проверка DNS и ICMP ping узла (без shell);
+//   - local.service_restart (write) — перезапуск службы systemd (только после подтверждения [y/N],
+//                                     с жёсткой защитой от обрыва SSH и сети).
+package local
+
+import (
+	"bufio"
+	"context"
+	"fmt"
+	"net"
+	"os"
+	"os/exec"
+	"regexp"
+	"runtime"
+	"sort"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	"sysagent/internal/core"
+)
+
+var (
+	validUnitRe = regexp.MustCompile(`^[a-zA-Z0-9_.@-]{1,128}$`)
+	validHostRe = regexp.MustCompile(`^[a-zA-Z0-9._:-]{1,253}$`)
+	validSpanRe = regexp.MustCompile(`^-[0-9]{1,4}[smhdw]$`)
+
+	// Службы, перезапуск которых запрещён удалённо во избежание потери SSH/сети.
+	protectedUnits = map[string]bool{
+		"ssh.service":                  true,
+		"sshd.service":                 true,
+		"networking.service":           true,
+		"systemd-networkd.service":     true,
+		"NetworkManager.service":       true,
+		"ifup@ens18.service":           true,
+		"sysagentd.service":            true,
+	}
+)
+
+// Module — подключаемый модуль локальной диагностики Linux.
+type Module struct{}
+
+// New создаёт экземпляр модуля local.
+func New() *Module { return &Module{} }
+
+func (m *Module) Name() string { return "local" }
+
+func (m *Module) Description() string {
+	return "Локальная диагностика Linux-хоста (ресурсы, диски, службы systemd, журнал ошибок, сеть)"
+}
+
+func (m *Module) Tools() []core.Tool {
+	return []core.Tool{
+		core.FuncTool{
+			ToolSpec: core.ToolSpec{
+				Name:        "local.summary",
+				Module:      "local",
+				Description: "Полная сводка по локальному серверу: hostname, ОС, ядро, uptime, нагрузка CPU, память RAM/Swap и заполнение дисков.",
+				Risk:        core.RiskRead,
+			},
+			Handler: runSummary,
+		},
+		core.FuncTool{
+			ToolSpec: core.ToolSpec{
+				Name:        "local.logs",
+				Module:      "local",
+				Description: "Последние ошибки и критические записи из системного журнала journalctl со склейкой дубликатов.",
+				Risk:        core.RiskRead,
+				Params: []core.ParamSpec{
+					{Name: "since", Description: "Интервал времени в формате -15m, -1h, -24h (по умолчанию -1h)", Required: false},
+					{Name: "unit", Description: "Необязательный фильтр по имени службы systemd (например cron.service)", Required: false},
+				},
+			},
+			Handler: runLogs,
+		},
+		core.FuncTool{
+			ToolSpec: core.ToolSpec{
+				Name:        "local.failed",
+				Module:      "local",
+				Description: "Список упавших (failed) юнитов systemd.",
+				Risk:        core.RiskRead,
+			},
+			Handler: runFailed,
+		},
+		core.FuncTool{
+			ToolSpec: core.ToolSpec{
+				Name:        "local.unit",
+				Module:      "local",
+				Description: "Подробное состояние конкретной службы systemd и последние строки её журнала.",
+				Risk:        core.RiskRead,
+				Params: []core.ParamSpec{
+					{Name: "unit", Description: "Имя службы systemd, например ssh.service или cron.service", Required: true},
+				},
+			},
+			Handler: runUnitStatus,
+		},
+		core.FuncTool{
+			ToolSpec: core.ToolSpec{
+				Name:        "local.netping",
+				Module:      "local",
+				Description: "Безопасная проверка DNS-разрешения и сетевой доступности (3 пакета ping) указанного хоста или IP.",
+				Risk:        core.RiskRead,
+				Params: []core.ParamSpec{
+					{Name: "host", Description: "Доменное имя или IP-адрес узла, например 192.168.200.1 или deb.debian.org", Required: true},
+				},
+			},
+			Handler: runNetPing,
+		},
+		core.FuncTool{
+			ToolSpec: core.ToolSpec{
+				Name:        "local.service_restart",
+				Module:      "local",
+				Description: "Штатный перезапуск некритичной службы systemd (требует подтверждения администратора; SSH и сеть защищены от обрыва).",
+				Risk:        core.RiskWrite,
+				Params: []core.ParamSpec{
+					{Name: "unit", Description: "Имя перезапускаемой службы systemd, например cron.service", Required: true},
+				},
+			},
+			Handler: runServiceRestart,
+		},
+	}
+}
+
+func normalizeUnit(raw string) (string, error) {
+	u := strings.TrimSpace(raw)
+	if u == "" || strings.HasPrefix(u, "-") || !validUnitRe.MatchString(u) {
+		return "", fmt.Errorf("недопустимое имя службы %q", raw)
+	}
+	if !strings.Contains(u, ".") {
+		u += ".service"
+	}
+	return u, nil
+}
+
+// --- 1. local.summary ---
+
+func runSummary(_ context.Context, _ map[string]string) (any, error) {
+	host, _ := os.Hostname()
+	osName := readOSRelease()
+	kernel := readTrimmedFile("/proc/sys/kernel/osrelease")
+	uptimeSec, uptimeHuman := readUptime()
+	load1, load5, load15 := readLoadAvg()
+	mem := readMemInfo()
+	disks := readDisks([]string{"/", "/var"})
+
+	return map[string]any{
+		"hostname":     host,
+		"os":           osName,
+		"kernel":       kernel,
+		"cpu_cores":    runtime.NumCPU(),
+		"uptime_sec":   uptimeSec,
+		"uptime_human": uptimeHuman,
+		"load_avg": map[string]float64{
+			"1m":  load1,
+			"5m":  load5,
+			"15m": load15,
+		},
+		"memory_mb": mem,
+		"disks":     disks,
+	}, nil
+}
+
+func readOSRelease() string {
+	f, err := os.Open("/etc/os-release")
+	if err != nil {
+		return runtime.GOOS
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := sc.Text()
+		if strings.HasPrefix(line, "PRETTY_NAME=") {
+			return strings.Trim(strings.TrimPrefix(line, "PRETTY_NAME="), `"'`)
+		}
+	}
+	return runtime.GOOS
+}
+
+func readTrimmedFile(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "unknown"
+	}
+	return strings.TrimSpace(string(b))
+}
+
+func readUptime() (int64, string) {
+	raw := readTrimmedFile("/proc/uptime")
+	fields := strings.Fields(raw)
+	if len(fields) == 0 {
+		return 0, "unknown"
+	}
+	secFloat, err := strconv.ParseFloat(fields[0], 64)
+	if err != nil {
+		return 0, "unknown"
+	}
+	sec := int64(secFloat)
+	return sec, (time.Duration(sec) * time.Second).String()
+}
+
+func readLoadAvg() (float64, float64, float64) {
+	fields := strings.Fields(readTrimmedFile("/proc/loadavg"))
+	if len(fields) < 3 {
+		return 0, 0, 0
+	}
+	l1, _ := strconv.ParseFloat(fields[0], 64)
+	l5, _ := strconv.ParseFloat(fields[1], 64)
+	l15, _ := strconv.ParseFloat(fields[2], 64)
+	return l1, l5, l15
+}
+
+func readMemInfo() map[string]any {
+	vals := make(map[string]uint64)
+	f, err := os.Open("/proc/meminfo")
+	if err == nil {
+		defer f.Close()
+		sc := bufio.NewScanner(f)
+		for sc.Scan() {
+			parts := strings.Fields(sc.Text())
+			if len(parts) >= 2 {
+				key := strings.TrimSuffix(parts[0], ":")
+				v, err := strconv.ParseUint(parts[1], 10, 64)
+				if err == nil {
+					vals[key] = v
+				}
+			}
+		}
+	}
+	totalMB := vals["MemTotal"] / 1024
+	availMB := vals["MemAvailable"] / 1024
+	var usedMB uint64
+	if totalMB > availMB {
+		usedMB = totalMB - availMB
+	}
+	var usedPct float64
+	if totalMB > 0 {
+		usedPct = float64(usedMB*1000/totalMB) / 10.0
+	}
+	return map[string]any{
+		"total_mb":     totalMB,
+		"used_mb":      usedMB,
+		"available_mb": availMB,
+		"used_percent": usedPct,
+		"swap_total":   vals["SwapTotal"] / 1024,
+		"swap_free":    vals["SwapFree"] / 1024,
+	}
+}
+
+func readDisks(paths []string) []map[string]any {
+	seenDev := make(map[uint64]bool)
+	var out []map[string]any
+	for _, p := range paths {
+		fi, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+		if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+			if seenDev[uint64(st.Dev)] {
+				continue
+			}
+			seenDev[uint64(st.Dev)] = true
+		}
+		var fs syscall.Statfs_t
+		if err := syscall.Statfs(p, &fs); err != nil || fs.Blocks == 0 {
+			continue
+		}
+		totalBytes := fs.Blocks * uint64(fs.Bsize)
+		availBytes := fs.Bavail * uint64(fs.Bsize)
+		usedBytes := totalBytes - (fs.Bfree * uint64(fs.Bsize))
+		pct := float64(usedBytes*1000/totalBytes) / 10.0
+		out = append(out, map[string]any{
+			"mount":        p,
+			"total_gb":     float64(totalBytes/(1024*1024*102)) / 10.0,
+			"used_gb":      float64(usedBytes/(1024*1024*102)) / 10.0,
+			"available_gb": float64(availBytes/(1024*1024*102)) / 10.0,
+			"used_percent": pct,
+		})
+	}
+	return out
+}
+
+// --- 2. local.logs ---
+
+func runLogs(ctx context.Context, args map[string]string) (any, error) {
+	since := strings.TrimSpace(args["since"])
+	if since == "" {
+		since = "-1h"
+	}
+	if !validSpanRe.MatchString(since) {
+		return nil, fmt.Errorf("параметр since должен иметь вид -15m, -1h, -24h (получено %q)", since)
+	}
+
+	cmdArgs := []string{"-p", "err..alert", "--no-pager", "-n", "200", "--since", since}
+	if rawUnit := strings.TrimSpace(args["unit"]); rawUnit != "" {
+		u, err := normalizeUnit(rawUnit)
+		if err != nil {
+			return nil, err
+		}
+		cmdArgs = append(cmdArgs, "-u", u)
+	}
+
+	out, err := exec.CommandContext(ctx, "journalctl", cmdArgs...).CombinedOutput()
+	if err != nil && len(out) == 0 {
+		return nil, fmt.Errorf("ошибка чтения journalctl: %w", err)
+	}
+
+	type grouped struct {
+		Message string `json:"message"`
+		Count   int    `json:"count"`
+	}
+	counts := make(map[string]int)
+	var order []string
+	totalRaw := 0
+
+	for _, rawLine := range strings.Split(string(out), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "-- ") {
+			continue
+		}
+		totalRaw++
+		normalized := scrubLogLine(stripJournalPrefix(line))
+		if counts[normalized] == 0 {
+			order = append(order, normalized)
+		}
+		counts[normalized]++
+	}
+
+	items := make([]grouped, 0, len(order))
+	for _, msg := range order {
+		items = append(items, grouped{Message: msg, Count: counts[msg]})
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Count > items[j].Count })
+	if len(items) > 25 {
+		items = items[:25]
+	}
+
+	return map[string]any{
+		"since":          since,
+		"total_raw_rows": totalRaw,
+		"unique_errors":  len(order),
+		"entries":        items,
+	}, nil
+}
+
+func stripJournalPrefix(line string) string {
+	// Отделяем штамп даты/хоста до двоеточия процесса, чтобы одинаковые ошибки склеивались.
+	idx := strings.Index(line, ": ")
+	if idx > 0 && idx < 80 {
+		return line[idx+2:]
+	}
+	return line
+}
+
+// --- 3. local.failed ---
+
+func runFailed(ctx context.Context, _ map[string]string) (any, error) {
+	out, err := exec.CommandContext(ctx, "systemctl", "--failed", "--no-legend", "--no-pager", "--plain").CombinedOutput()
+	if err != nil && len(out) == 0 {
+		return nil, fmt.Errorf("ошибка вызова systemctl: %w", err)
+	}
+
+	var failed []map[string]string
+	for _, raw := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(raw)
+		if len(fields) >= 4 {
+			failed = append(failed, map[string]string{
+				"unit":        fields[0],
+				"load":        fields[1],
+				"active":      fields[2],
+				"sub":         fields[3],
+				"description": strings.Join(fields[4:], " "),
+			})
+		}
+	}
+	return map[string]any{
+		"healthy":      len(failed) == 0,
+		"failed_count": len(failed),
+		"units":        failed,
+	}, nil
+}
+
+// --- 4. local.unit ---
+
+func runUnitStatus(ctx context.Context, args map[string]string) (any, error) {
+	unit, err := normalizeUnit(args["unit"])
+	if err != nil {
+		return nil, err
+	}
+
+	propsOut, err := exec.CommandContext(
+		ctx,
+		"systemctl", "show", unit,
+		"--no-pager",
+		"--property=Id,Description,LoadState,ActiveState,SubState,MainPID,NRestarts,ActiveEnterTimestamp",
+	).CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("ошибка чтения статуса %s: %w", unit, err)
+	}
+
+	props := make(map[string]string)
+	for _, line := range strings.Split(string(propsOut), "\n") {
+		idx := strings.IndexByte(line, '=')
+		if idx > 0 {
+			props[line[:idx]] = strings.TrimSpace(line[idx+1:])
+		}
+	}
+
+	logOut, _ := exec.CommandContext(ctx, "journalctl", "-u", unit, "-n", "8", "--no-pager").CombinedOutput()
+	var tail []string
+	for _, ln := range strings.Split(string(logOut), "\n") {
+		ln = strings.TrimSpace(ln)
+		if ln != "" && !strings.HasPrefix(ln, "-- ") {
+			tail = append(tail, scrubLogLine(ln))
+		}
+	}
+
+	return map[string]any{
+		"unit":        unit,
+		"status":      props,
+		"recent_logs": tail,
+	}, nil
+}
+
+var secretKVRe = regexp.MustCompile(`(?i)(password|passwd|secret|token|apikey|api_key|bearer)(\s*[:=]\s*|\s+)\S+`)
+
+func scrubLogLine(s string) string {
+	return secretKVRe.ReplaceAllString(s, "$1$2****")
+}
+
+// --- 5. local.netping ---
+
+func runNetPing(ctx context.Context, args map[string]string) (any, error) {
+	host := strings.TrimSpace(args["host"])
+	if host == "" || strings.HasPrefix(host, "-") || !validHostRe.MatchString(host) {
+		return nil, fmt.Errorf("недопустимое имя узла или IP %q", args["host"])
+	}
+
+	ips, dnsErr := net.DefaultResolver.LookupHost(ctx, host)
+	dnsOK := dnsErr == nil && len(ips) > 0
+
+	out, pingErr := exec.CommandContext(ctx, "ping", "-n", "-c", "3", "-W", "2", "--", host).CombinedOutput()
+	summaryLines := []string{}
+	for _, ln := range strings.Split(string(out), "\n") {
+		ln = strings.TrimSpace(ln)
+		if strings.Contains(ln, "packets transmitted") || strings.Contains(ln, "rtt ") || strings.Contains(ln, "round-trip") {
+			summaryLines = append(summaryLines, ln)
+		}
+	}
+
+	res := map[string]any{
+		"host":         host,
+		"dns_resolved": dnsOK,
+		"resolved_ips": ips,
+		"ping_ok":      pingErr == nil,
+		"summary":      summaryLines,
+	}
+	if dnsErr != nil {
+		res["dns_error"] = dnsErr.Error()
+	}
+	return res, nil
+}
+
+// --- 6. local.service_restart (WRITE — только с подтверждением [y/N]) ---
+
+func runServiceRestart(ctx context.Context, args map[string]string) (any, error) {
+	unit, err := normalizeUnit(args["unit"])
+	if err != nil {
+		return nil, err
+	}
+	if protectedUnits[unit] {
+		return nil, fmt.Errorf("перезапуск критичной сетевой/системной службы %s заблокирован защитой от потери доступа", unit)
+	}
+
+	out, err := exec.CommandContext(ctx, "systemctl", "restart", unit).CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("ошибка перезапуска %s: %v (%s)", unit, err, strings.TrimSpace(string(out)))
+	}
+
+	stateOut, _ := exec.CommandContext(ctx, "systemctl", "is-active", unit).CombinedOutput()
+	return map[string]any{
+		"restarted":    true,
+		"unit":         unit,
+		"active_state": strings.TrimSpace(string(stateOut)),
+	}, nil
+}

@@ -1,0 +1,35 @@
+[Unit]
+Description=sysagent watcher — мониторинг ошибок журнала systemd
+Documentation=file:/opt/sysagent/README.md
+After=systemd-journald.service
+
+[Service]
+Type=simple
+User=sysagent
+Group=systemd-journal
+WorkingDirectory=/opt/sysagent
+ExecStart=/usr/bin/python3 -m sysagent.watch --interval 60 --since -2min
+Restart=always
+RestartSec=10
+StateDirectory=sysagent
+
+# --- изоляция: минимум прав, ничего лишнего -------------------------------
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+StateDirectoryMode=0750
+
+[Install]
+WantedBy=multi-user.target
