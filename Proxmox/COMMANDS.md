@@ -1186,6 +1186,176 @@ apt-get update
 pct exec <CTID> -- bash -c "echo 'UseDNS no' >> /etc/ssh/sshd_config && systemctl restart ssh"
 ```
 
+## 15. SSH на Debian и в LXC: доступ, статический IP, pam_systemd
+
+Адреса, интерфейсы и имена — плейсхолдеры. Блоки общие, не привязаны к конкретному узлу.
+
+```bash
+# [R] Какой адрес у хоста — LINUX-SSH-DEBIAN-ACCESS-2026-001
+# Брать значение после inet, а не brd: адрес X.X.X.255 при маске /24 — broadcast, не хост
+# (на него SSH даёт «Cannot assign requested address»)
+hostname -I
+ip -br addr
+```
+
+```bash
+# [R] Если SSH всё равно не подключается — LINUX-SSH-DEBIAN-ACCESS-2026-001
+# Также проверить, что клиент в той же подсети. Для ВМ в VirtualBox/VMware адаптер должен быть
+# в режиме Bridge/Host-only (при NAT нужен проброс порта 22)
+sudo systemctl status ssh
+ss -tln | grep :22
+sudo ufw status
+sudo iptables -L -n
+```
+
+```bash
+# [W] «Access denied» под root, вариант 1: разрешить вход root по паролю (по порядку)
+# LINUX-SSH-DEBIAN-ACCESS-2026-001
+# Годится для лаборатории. По умолчанию в Debian PermitRootLogin prohibit-password: root пускает только
+# по ключу. В sshd_config поставить PermitRootLogin yes и PasswordAuthentication yes. Не отключать
+# PasswordAuthentication до подтверждённого входа по ключу. Менять порт SSH — только вместе с правилами брандмауэра
+sudo passwd root                    # если у root ещё нет пароля
+sudo nano /etc/ssh/sshd_config
+sudo systemctl restart ssh
+```
+
+```bash
+# [W] «Access denied» под root, вариант 2: вход root только по ключу (правильнее для production)
+# LINUX-SSH-DEBIAN-ACCESS-2026-001
+# Права обязательны: 700 на ~/.ssh и 600 на authorized_keys. Вместо примера подставить свой открытый ключ
+# целиком. tee без -a перезаписывает файл: существующие ключи будут потеряны (замечание не из источника)
+sudo mkdir -p /root/.ssh && sudo chmod 700 /root/.ssh
+echo "<открытый_ключ>" | sudo tee /root/.ssh/authorized_keys
+sudo chmod 600 /root/.ssh/authorized_keys
+```
+
+```bash
+# [R] Применилась ли настройка и почему отказ — LINUX-SSH-DEBIAN-ACCESS-2026-001
+# sshd -T должен показать permitrootlogin yes; если остался prohibit-password — в конфиге есть
+# дублирующая строка выше по файлу (первая имеет приоритет)
+sudo sshd -T | grep -i permitroot
+ssh -v root@<хост>
+sudo journalctl -u ssh -n 20
+```
+
+```bash
+# [R] Текущие параметры сети перед переводом с DHCP на статический IP — LINUX-SSH-DEBIAN-ACCESS-2026-001
+# default via ... в выводе ip route — шлюз
+ip -br addr
+ip route
+```
+
+```bash
+# [W] Статический IP через /etc/network/interfaces — LINUX-SSH-DEBIAN-ACCESS-2026-001
+# Текущая SSH-сессия при применении отвалится: переподключаться на новый адрес, иметь консоль.
+# Адрес брать вне диапазона DHCP роутера, не .0 и не .255. Вместо строк allow-hotplug / iface ... dhcp:
+#   auto <интерфейс>
+#   iface <интерфейс> inet static
+#       address <IP>/<маска>
+#       gateway <шлюз>
+#       dns-nameservers <DNS1> <DNS2>
+sudo nano /etc/network/interfaces
+sudo systemctl restart networking    # или: ifdown <интерфейс> && ifup <интерфейс>
+```
+
+```bash
+# [W] Статический IP через NetworkManager (по порядку) — LINUX-SSH-DEBIAN-ACCESS-2026-001
+# В nmtui: Edit a connection, IPv4 CONFIGURATION: Automatic заменить на Manual, затем Addresses, Gateway, DNS
+sudo nmtui
+sudo nmcli con up <имя_соединения>
+```
+
+```bash
+# [R] Проверка после смены адреса — LINUX-SSH-DEBIAN-ACCESS-2026-001
+# Если пропал DNS (пакет resolvconf установлен не всегда), прописать его вручную в /etc/resolv.conf
+ip -br addr
+ping -c 3 <шлюз>
+ping -c 3 <имя_внешнего_хоста>
+```
+
+```bash
+# [R] Диагностика задержки SSH после успешной аутентификации в LXC — LINUX-SSH-PAM-SYSTEMD-ZABBIX-2026-001
+# Сначала исключить UseDNS и GSSAPI (если пауза уже после аутентификации, дело не в них) и
+# убедиться, что неинтерактивная команда быстрая. -o StrictHostKeyChecking=no отключает проверку
+# ключа хоста — только в доверенной сети
+grep -E "^(UseDNS|GSSAPIAuthentication|GSSAPICleanupCredentials|UsePAM)" /etc/ssh/sshd_config
+ssh -v root@<адрес>      # где пауза: после «Entering interactive session»?
+ssh -o StrictHostKeyChecking=no root@<адрес> "echo NON_INTERACTIVE_TEST && date"
+ls -la /etc/update-motd.d/; tail -30 /root/.bashrc; cat /root/.profile
+```
+
+```bash
+# [R] Ключевой шаг: состояние systemd-logind внутри контейнера — LINUX-SSH-PAM-SYSTEMD-ZABBIX-2026-001
+# Признак: failed, status=226/NAMESPACE; в журнале «Failed to set up mount namespacing ... Permission denied»;
+# в common-session строка «session optional pam_systemd.so»
+systemctl status systemd-logind --no-pager -l
+journalctl -u systemd-logind --no-pager -n 20
+cat /etc/pam.d/common-session
+```
+
+```bash
+# [W] Закомментировать pam_systemd.so (команда идемпотентна) — LINUX-SSH-PAM-SYSTEMD-ZABBIX-2026-001
+# Только для LXC с подтверждённой ошибкой 226/NAMESPACE у systemd-logind. Не переносить на ВМ и
+# физические серверы и не применять массово без подтверждения той же причины. Устраняет симптом,
+# не причину. Правку может перезаписать pam-auth-update: проверять файл после обновлений пакетов
+sed -i 's/^\([[:space:]]*session[[:space:]]\+optional[[:space:]]\+pam_systemd\.so\)/# \1/' /etc/pam.d/common-session
+```
+
+```bash
+# [R] Проверка результата — LINUX-SSH-PAM-SYSTEMD-ZABBIX-2026-001
+# Строка должна быть закомментирована; вход без минутной задержки, неинтерактивная команда по-прежнему быстрая
+grep -n "pam_systemd" /etc/pam.d/common-session
+time ssh root@<адрес>
+time ssh root@<адрес> "echo OK && date"
+```
+
+```bash
+# [W] Откат: раскомментировать pam_systemd.so — LINUX-SSH-PAM-SYSTEMD-ZABBIX-2026-001
+# Не откатывать, пока systemd-logind падает с 226/NAMESPACE: задержка вернётся сразу
+sed -i 's/^#[[:space:]]*\(session[[:space:]]\+optional[[:space:]]\+pam_systemd\.so\)/\1/' /etc/pam.d/common-session
+```
+
+## 16. bond0 (active-backup)
+
+Адреса и имена интерфейсов — плейсхолдеры. По другим документам Ceph сейчас bond0 не использует,
+а сам он в состоянии DOWN: актуальное состояние — в `AI-environment_facts-korona-proxmox.md`.
+Блоки описывают, как bond0 создавался. IP назначается только на bond0, слейвы остаются `inet manual`.
+Режим 802.3ad (LACP) без настройки агрегации портов на коммутаторе не включать.
+
+```bash
+# [R] Линк на слейвах bond0 до настройки (на обоих узлах) — NETWORK-BOND0-CEPH-ACTIVEBACKUP-2026-001
+# Ожидается yes. Слейвы должны быть объявлены в /etc/network/interfaces как inet manual
+# и не входить в другой bridge или bond
+ethtool <интерфейс1> | grep "Link detected"
+ethtool <интерфейс2> | grep "Link detected"
+```
+
+```bash
+# [W] Создать bond0 active-backup и применить (по порядку, на каждом узле со своим адресом)
+# NETWORK-BOND0-CEPH-ACTIVEBACKUP-2026-001
+# active-backup не требует правок на коммутаторе: один порт активен, второй в резерве.
+# ifreload -a применяет конфигурацию всех интерфейсов: при ошибке в файле можно потерять связь с узлом
+cat >> /etc/network/interfaces << 'EOF'
+
+auto bond0
+iface bond0 inet static
+    address <IP>/<маска>
+    bond-slaves <интерфейс1> <интерфейс2>
+    bond-mode active-backup
+    bond-miimon 100
+    bond-primary <интерфейс1>
+EOF
+ifreload -a
+```
+
+```bash
+# [R] Проверка bond0 — NETWORK-BOND0-CEPH-ACTIVEBACKUP-2026-001
+# Ожидается: bond0 UP, Bonding Mode fault-tolerance (active-backup), MII Status up на обоих
+# слейвах, Link Failure Count 0
+ip addr show bond0
+cat /proc/net/bonding/bond0
+```
+
 ---
 
 ## Покрытие
@@ -1216,14 +1386,20 @@ pct exec <CTID> -- bash -c "echo 'UseDNS no' >> /etc/ssh/sshd_config && systemct
 - `PROXMOX-VAULTWARDEN-USERS-2026-001`
 - `PROXMOX-WINSRV2022-TEMPLATE-2026-001`
 - `PROXMOX-LXC-DEBIAN12-TEMPLATE-2026-001`
+- `LINUX-SSH-DEBIAN-ACCESS-2026-001`
+- `LINUX-SSH-PAM-SYSTEMD-ZABBIX-2026-001`
+- `NETWORK-BOND0-CEPH-ACTIVEBACKUP-2026-001`
 
 Команды `pvesh get /cluster/resources` и `qm guest cmd <VMID> get-host-name`
 проверены администратором 2026-10-20 (отдельного документа-источника нет).
 
-**Ещё не вошли** (будут добавлены следующими правками): диагностика SSH и `pam_systemd`,
-`bond0`.
-До их добавления искать команды
-в самих документах по `INDEX.md`.
+**Ещё не просмотрены на наличие команд** (будут разобраны следующими правками):
+`PROXMOX-NODE-RENAME-2026-001`, `PROXMOX-POSTINSTALL-SCRIPT-2026-001`,
+`PROXMOX-VM-MIGRATION-ISOLATION-2026-001` и справочные документы
+(`HARDWARE-HUAWEI-2288H-PORTMAP-2026-001`, `PROXMOX-NETWORK-TOPOLOGY-2026-001`,
+`NETWORK-SWITCH-SELECTION-2026-001`, `PROXMOX-WEBGUI-DATACENTER-2026-001`,
+`PROXMOX-CEPH-ARCHITECTURE-PLANNING-2026-001`, `PROXMOX-CEPH-CONCEPTS-2NODE-2026-001`).
+До их разбора искать команды в самих документах по `INDEX.md`.
 
 ## Как дополнять
 
