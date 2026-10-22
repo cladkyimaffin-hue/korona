@@ -1,12 +1,12 @@
 ---
 document_id: ZABBIX-PVE-API-MONITORING-2026-001
 title: Мониторинг кластера Proxmox через API в Zabbix (шаблон Proxmox VE by HTTP)
-  — ошибка 403 из-за Privilege Separation токена
+  — ошибка 403 из-за Privilege Separation токена (решено), ошибка 401 (открыто)
 document_type: setup
 status: in_progress
 priority: high
 date_created: 2026-09-14
-date_modified: '2026-09-29'
+date_modified: '2026-10-22'
 next_review: 2026-10-06
 author: cladkyimaffin-hue
 category: 08_Monitoring/Zabbix
@@ -48,6 +48,9 @@ dont_repeat:
 - Выдача роли на корень (`/`) токену НЕ гарантирует устранение 401, если сам секрет
   токена в макросах Zabbix не совпадает с реальным — прежде чем менять права,
   проверяйте `curl` с текущим секретом напрямую, в обход Zabbix.
+- Заголовок API-токена Proxmox VE имеет вид `PVEAPIToken=USER@REALM!TOKENID=SECRET`
+  (знак `=` перед секретом, не `:`); ошибка 401 означает сбой аутентификации (формат
+  заголовка, ID или секрет токена), а нехватка прав даёт 403.
 related_files:
 - ZABBIX-STACK-INSTALL-2026-001
 - PROXMOX-CLUSTER-QDEVICE-SETUP-2026-001
@@ -56,7 +59,7 @@ related_files:
 schema_version: '1.0'
 ---
 
-# Мониторинг кластера Proxmox через API в Zabbix (шаблон Proxmox VE by HTTP) — ошибка 403 из-за Privilege Separation токена
+# Мониторинг кластера Proxmox через API в Zabbix (шаблон Proxmox VE by HTTP) — ошибка 403 из-за Privilege Separation токена (решено), ошибка 401 (открыто)
 
 ## Что настраивается и зачем
 Сбор метрик узлов Proxmox (`pve01`, `pve02`) в Zabbix через официальный
@@ -187,9 +190,18 @@ pveum acl modify / --roles PVEAuditor --token 'zabbix_monitor@pve!zabbix_token_n
 # Проверка напрямую, в обход Zabbix, ДО обновления макросов
 # ВАЖНО: одинарные кавычки — восклицательный знак в токене иначе триггерит history expansion в bash
 curl -k -s -w "\nHTTP_CODE: %{http_code}\n" \
-  -H 'Authorization: PVEAPIToken=zabbix_monitor@pve!zabbix_token_new:<НОВЫЙ_СЕКРЕТ>' \
+  -H 'Authorization: PVEAPIToken=zabbix_monitor@pve!zabbix_token_new=<НОВЫЙ_СЕКРЕТ>' \
   "https://192.168.202.179:8006/api2/json/cluster/status"
 ```
+⚠️ **Формат заголовка (исправлено 2026-10-22).** По документации Proxmox токен
+передаётся как `PVEAPIToken=USER@REALM!TOKENID=SECRET`: перед секретом стоит
+знак `=` (так же записан `curl` в разделе про 403). Прежняя версия `curl`
+в этом пункте использовала `:` перед секретом; такая запись не соответствует
+формату из документации и сама по себе способна дать `401`. **INFERRED**, на
+узле не проверялось. Какой разделитель стоял в `curl`, давшем `HTTP 401`
+(см. «Симптом»), в источнике не зафиксировано. Прежде чем пересоздавать токен,
+повторить проверку с `=` на текущем токене и его сохранённом секрете.
+
 Затем обновить в Zabbix, на уровне хоста `pve02`:
 - `{$PVE.TOKEN.ID}` = `zabbix_monitor@pve!zabbix_token_new`
 - `{$PVE.TOKEN.SECRET}` = `<секрет, скопированный при создании>`
