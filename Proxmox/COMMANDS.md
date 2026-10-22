@@ -884,6 +884,308 @@ qm set <VMID> --usb0 host=<VendorID>:<DeviceID>
 qm config <VMID> | grep usb
 ```
 
+## 13. Vaultwarden (LXC)
+
+Контейнер, имена, адреса и пароли — плейсхолдеры. Хеш `ADMIN_TOKEN` и сам токен в репозиторий и
+чаты не вносить. Без HTTPS страница входа Vaultwarden не заработает (браузеры блокируют Web
+Crypto API на обычном HTTP), поэтому после установки нужен обратный прокси (Caddy, ниже).
+
+```bash
+# [W] Создать контейнер из шаблона LXC (по порядку) — PROXMOX-VAULTWARDEN-INSTALL-2026-001
+# Только --full: по умолчанию клон шаблона получается linked. Production-контейнеры в этой
+# инфраструктуре — на ceph-fast. --net0 в pct clone не принимается: сеть отдельной командой pct set
+pct clone <TEMPLATE_CTID> <CTID> --hostname <имя> --storage ceph-fast --full
+pct set <CTID> --net0 name=eth0,bridge=vmbr0,ip=<IP>/<маска>,gw=<шлюз>
+pct start <CTID>
+```
+
+```bash
+# [W] Передать .deb-пакеты Vaultwarden и Web-Vault в контейнер и установить (по порядку)
+# PROXMOX-VAULTWARDEN-INSTALL-2026-001
+# apt-репозиторий и прямая загрузка пакетов с vaultwarden-deb.pages.dev с сервера недоступны (блокировка
+# HTTPS к Cloudflare Pages на уровне шлюза). Обход: скачать пакеты на локальном ПК, переименовать в .iso
+# (веб-интерфейс Proxmox фильтрует загрузку по расширению), загрузить через local → ISO Images → Upload.
+# Версии должны быть совместимы: для Vaultwarden 1.37.2 источник называет рабочим Web-Vault v2025.12.2,
+# а не v2026.7.0
+pct push <CTID> /var/lib/vz/template/iso/<vaultwarden>.deb.iso /tmp/vaultwarden.deb
+pct push <CTID> /var/lib/vz/template/iso/<vaultwarden-web-vault>.deb.iso /tmp/vaultwarden-web-vault.deb
+pct exec <CTID> -- dpkg -i /tmp/vaultwarden-web-vault.deb /tmp/vaultwarden.deb
+pct exec <CTID> -- apt --fix-broken install -y
+```
+
+```bash
+# [W] Путь к Web-Vault и адрес прослушивания (по порядку) — PROXMOX-VAULTWARDEN-INSTALL-2026-001
+# Пакет ставит Web-Vault в /usr/share/vaultwarden/web-vault, а не в /var/lib/vaultwarden
+pct exec <CTID> -- bash -c "echo -e '\nROCKET_ADDRESS=0.0.0.0\nWEB_VAULT_FOLDER=/usr/share/vaultwarden/web-vault' >> /etc/vaultwarden.env"
+pct exec <CTID> -- systemctl restart vaultwarden
+```
+
+```bash
+# [R] Получить Argon2id-хеш для ADMIN_TOKEN — PROXMOX-VAULTWARDEN-INSTALL-2026-001
+# Текстовый ADMIN_TOKEN Vaultwarden не принимает, нужен хеш Argon2id. Команда vaultwarden hash
+# предпочтительнее ручной связки openssl + argon2 (она в источнике описана). Пароль вводится
+# интерактивно; хеш вписать в /etc/vaultwarden.env как ADMIN_TOKEN=<хеш> — подробности про $ в следующем блоке
+pct exec <CTID> -- vaultwarden hash
+```
+
+```bash
+# [W] Исправить удвоенные $ в ADMIN_TOKEN (по порядку) — PROXMOX-VAULTWARDEN-ADMIN-TOKEN-2026-001
+# /etc/vaultwarden.env подключён как EnvironmentFile=, он читает файл буквально: значение — одинарные $,
+# без кавычек и без удвоения $$ (удвоение относится к Environment= в .service-файле и ломает токен).
+# Вывод grep содержит хеш токена — не копировать в документы и чаты
+sed -i '/^ADMIN_TOKEN=/ s/\$\$/\$/g' /etc/vaultwarden.env
+grep '^ADMIN_TOKEN=' /etc/vaultwarden.env
+systemctl restart vaultwarden
+```
+
+```bash
+# [R] Что реально получил процесс Vaultwarden — PROXMOX-VAULTWARDEN-ADMIN-TOKEN-2026-001
+# Однозначная проверка вместо догадок: config.json имеет приоритет над EnvironmentFile; в выводе
+# systemctl show пустое Environment= для EnvironmentFile ожидаемо. Вывод последней команды содержит
+# хеш токена — не копировать в документы и чаты
+grep -i "admin_token" /var/lib/vaultwarden/data/config.json
+systemctl show vaultwarden --property=Environment
+cat /proc/<PID>/environ | tr '\0' '\n' | grep -i admin_token
+```
+
+```bash
+# [R] Состояние Vaultwarden — PROXMOX-VAULTWARDEN-INSTALL-2026-001
+# Ожидается: Active: active (running), Rocket has launched, HTTP/1.1 200 OK, без строк ERROR
+pct exec <CTID> -- systemctl status vaultwarden --no-pager -l | grep -E 'Active:|Rocket has launched|ERROR'
+pct exec <CTID> -- curl -s -I http://127.0.0.1:8000
+```
+
+```bash
+# [D] REQUIRES_APPROVAL — откат Web-Vault при ошибке смены мастер-пароля (по порядку) — PROXMOX-VAULTWARDEN-ADMIN-TOKEN-2026-001
+# Ошибка 422 / «missing field newMasterPasswordHash»: новая версия Web-Vault несовместима с версией
+# Vaultwarden. Сначала смотреть логи на конкретный код ошибки, не переходить к деструктивному сбросу
+# пароля. rm -rf удаляет Web-Vault; без установки нужной версии (команда в источнике не приведена)
+# веб-интерфейс не заработает — .deb нужной версии должен быть под рукой
+systemctl stop vaultwarden
+rm -rf /usr/share/vaultwarden/web-vault
+# установить Web-Vault нужной версии (в источнике — v2025.12.2)
+systemctl start vaultwarden
+```
+
+```bash
+# [W] Установить Caddy из официального репозитория (по порядку) — PROXMOX-VAULTWARDEN-HTTPS-CADDY-2026-001
+# Команда добавления репозитория Caddy stable в источнике не приведена — подставить по документации Caddy
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+# добавить репозиторий Caddy stable, затем:
+sudo apt update && sudo apt install -y caddy
+```
+
+```caddy
+# [W] /etc/caddy/Caddyfile — обратный прокси с TLS на внутренний Vaultwarden — PROXMOX-VAULTWARDEN-HTTPS-CADDY-2026-001
+# tls internal: сертификат от внутреннего CA Caddy (нет публичного домена и DNS) — осознанный выбор,
+# а не временное решение; браузер предупреждает о недоверенном сертификате, пока корневой
+# сертификат не установлен на клиенте
+<адрес_vaultwarden>, <имя_vaultwarden> {
+    tls internal
+
+    reverse_proxy 127.0.0.1:8000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+}
+```
+
+```bash
+# [W] Применить конфигурацию Caddy (варианты, не по порядку) — PROXMOX-VAULTWARDEN-HTTPS-CADDY-2026-001
+sudo systemctl restart caddy    # при первой установке
+sudo systemctl reload caddy     # при последующих правках Caddyfile — без разрыва соединений
+```
+
+```bash
+# [R] Проверка HTTPS — PROXMOX-VAULTWARDEN-HTTPS-CADDY-2026-001
+# Ожидается: TLS 1.3, HTTP/2 200, server: Rocket, via: 1.1 Caddy. -k отключает проверку сертификата.
+# subject: [NONE] в выводе — особенность curl для сертификатов только с SAN, не ошибка
+curl -kvI https://<адрес_vaultwarden>
+```
+
+```bash
+# [D] REQUIRES_APPROVAL — удалить Caddy (откат) (по порядку) — PROXMOX-VAULTWARDEN-HTTPS-CADDY-2026-001
+# Обратный прокси перестанет работать: веб-интерфейс Vaultwarden по HTTPS станет недоступен
+sudo apt remove --purge caddy
+sudo rm /etc/apt/sources.list.d/caddy-stable.list
+```
+
+```bash
+# [R] Корневой сертификат Caddy для установки на клиентские машины — PROXMOX-VAULTWARDEN-USERS-2026-001
+# Нужен именно корневой (root.crt), не промежуточный: промежуточный действует около 12 часов,
+# и доверие быстро истечёт. Скопировать вывод целиком (BEGIN/END CERTIFICATE) в файл на клиенте
+cat /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt
+```
+
+```bash
+# [R] Срок действия сертификата, который отдаёт сервер — PROXMOX-VAULTWARDEN-USERS-2026-001
+echo | openssl s_client -connect <адрес_vaultwarden>:443 2>/dev/null | openssl x509 -noout -dates
+```
+
+## 14. Шаблоны: Windows Server 2022 и Debian 12 LXC
+
+Имена, ID, образы и адреса — плейсхолдеры. Для ВМ и для контейнеров используются разные
+команды: `qm` управляет ВМ (KVM/QEMU), `pct` — контейнерами (LXC); путь конфигурации
+(`qemu-server/` или `lxc/`) однозначно показывает тип объекта.
+
+```bash
+# [W] Создать базовую ВМ под шаблон Windows Server 2022 — PROXMOX-WINSRV2022-TEMPLATE-2026-001
+# Параметры обязательны: machine=q35 (не i440fx), bios=ovmf (UEFI), scsihw=virtio-scsi-single
+# (не IDE/SATA), сеть virtio (не E1000/Realtek). Виртуальный TPM обязателен: без него установка
+# Windows Server 2022 не пройдёт. На этапе выбора диска подключить драйвер VirtIO SCSI с virtio-win.iso
+qm create <VMID> --name "<имя_шаблона>" --memory 4096 --cores 4 --cpu host \
+  --machine q35 --bios ovmf --ostype win11 \
+  --scsihw virtio-scsi-single \
+  --scsi0 ceph-fast:100,iothread=1,discard=on,ssd=1 \
+  --ide2 local:iso/<ISO_Windows>,media=cdrom \
+  --ide3 local:iso/<ISO_virtio-win>,media=cdrom \
+  --net0 virtio,bridge=vmbr0 \
+  --boot order=ide2 \
+  --tpmstate0 ceph-fast:version=v2.0
+```
+
+```bash
+# [W] Включить QEMU Guest Agent после установки драйверов — PROXMOX-WINSRV2022-TEMPLATE-2026-001
+# Внутри гостя убедиться, что служба QEMU Guest Agent запущена
+qm set <VMID> --agent enabled=1,fstrim_cloned_disks=1
+```
+
+```powershell
+# [W] Включить RDP внутри гостя (по умолчанию выключен) — PROXMOX-WINSRV2022-TEMPLATE-2026-001
+Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+```
+
+```powershell
+# [R] Диагностика RDP, если не помогло — PROXMOX-WINSRV2022-TEMPLATE-2026-001
+# В ipconfig: реальный IP или APIPA 169.254.x.x (DHCP не сработал)
+ipconfig
+Get-NetFirewallRule -DisplayGroup "Remote Desktop"
+```
+
+```powershell
+# [D] REQUIRES_APPROVAL — Sysprep перед превращением ВМ в шаблон — PROXMOX-WINSRV2022-TEMPLATE-2026-001
+# Только для ВМ, которая готовится стать шаблоном: обобщение меняет идентичность системы (SID),
+# на рабочей ВМ не запускать. Это исполняемый файл, не командлет PowerShell: вызывать по полному пути.
+# В окне: «Переход в OOBE»; галочка «Подготовка к использованию» (Generalize) ОБЯЗАТЕЛЬНА (без неё SID
+# не обобщается, клоны конфликтуют в AD); завершение — «Завершение работы», не «Перезагрузка»
+# (перезагрузка запускает OOBE и портит шаблон)
+& 'C:\Windows\System32\Sysprep\sysprep.exe'
+```
+
+```bash
+# [W] Остановить ВМ, превратить в шаблон и клонировать (по порядку) — PROXMOX-WINSRV2022-TEMPLATE-2026-001
+# --full 1 обязателен: без него получается linked clone, зависящий от диска исходного шаблона,
+# и исходный шаблон потом нельзя удалить (base volume ... is still in use by linked clone)
+qm stop <VMID>
+qm template <VMID>
+qm clone <VMID> <NEW_VMID> --name "<имя>" --full 1
+```
+
+```bash
+# [R] Шаблон это или клон, и какого типа — PROXMOX-WINSRV2022-TEMPLATE-2026-001
+# template: 1 — шаблон: его нельзя запускать, только клонировать. Проверять тип клона перед
+# удалением исходного шаблона
+qm config <VMID> | grep -E "(template|clone)"
+```
+
+```bash
+# [D] REQUIRES_APPROVAL — удалить ВМ вместе с неиспользуемыми дисками — PROXMOX-WINSRV2022-TEMPLATE-2026-001
+# Безвозвратно. В источнике: ошибочно созданный linked clone удалялся и пересоздавался как full clone,
+# и только после этого удалялся исходный шаблон. Исходный шаблон не удалять, пока клон не проверен
+# как full clone (блок выше)
+qm destroy <VMID> --destroy-unreferenced-disks --purge
+```
+
+```bash
+# [R] Шаблон Debian 12 для LXC на месте — PROXMOX-LXC-DEBIAN12-TEMPLATE-2026-001
+ls /var/lib/vz/template/cache/
+```
+
+```bash
+# [W] Создать контейнер-заготовку под шаблон Debian 12 — PROXMOX-LXC-DEBIAN12-TEMPLATE-2026-001
+# Корневой диск — только --rootfs, не --disk (иначе Unknown option: disk)
+pct create <CTID> local:vztmpl/<образ_debian12>.tar.zst \
+  --rootfs ceph-fast:100 \
+  --memory 4096 --cores 2 \
+  --net0 name=eth0,bridge=vmbr0 \
+  --hostname <имя> --unprivileged 1
+```
+
+```bash
+# [W] Автозапуск eth0 внутри контейнера (по порядку) — PROXMOX-LXC-DEBIAN12-TEMPLATE-2026-001
+# В образе /etc/network/interfaces содержит только lo: eth0 после перезагрузки сам не поднимается
+pct exec <CTID> -- bash -c "echo -e '\nauto eth0\niface eth0 inet dhcp' >> /etc/network/interfaces"
+pct reboot <CTID>
+pct exec <CTID> -- ip -4 addr show eth0
+```
+
+```bash
+# [W] Временный статический IP для проверки перед шаблонированием — PROXMOX-LXC-DEBIAN12-TEMPLATE-2026-001
+pct set <CTID> --net0 name=eth0,bridge=vmbr0,ip=<IP>/<маска>,gw=<шлюз>
+```
+
+```bash
+# [W] Подготовить контейнер и создать шаблон (по порядку) — PROXMOX-LXC-DEBIAN12-TEMPLATE-2026-001
+# Контейнер должен быть остановлен. Статический IP и gateway убрать из net0: иначе все клоны получат
+# один и тот же адрес. pct template необратим в рамках этого ID: контейнер после этого предназначен
+# только для клонирования
+pct shutdown <CTID>
+pct set <CTID> --net0 name=eth0,bridge=vmbr0
+pct config <CTID> | grep net0
+pct template <CTID>
+```
+
+```bash
+# [W] Клонировать контейнер из шаблона и задать сеть отдельной командой (по порядку)
+# PROXMOX-LXC-DEBIAN12-TEMPLATE-2026-001
+# --net0 в pct clone не принимается (Unknown option: net0): сначала клон без сетевых параметров,
+# затем pct set. Для production-контейнеров добавлять --full и --storage ceph-fast, иначе клон
+# шаблона будет linked (PROXMOX-VAULTWARDEN-INSTALL-2026-001). Успешный pct clone не подтверждает
+# рабочую сеть клона — проверять отдельно
+pct clone <TEMPLATE_CTID> <NEW_CTID> --hostname <новое_имя>
+pct set <NEW_CTID> --net0 name=eth0,bridge=vmbr0,ip=<IP>/<маска>,gw=<шлюз>
+pct start <NEW_CTID>
+```
+
+```bash
+# [W] Сменить имя или описание контейнера, не трогая ID — PROXMOX-LXC-DEBIAN12-TEMPLATE-2026-001
+# Прямой команды смены VMID в Proxmox нет
+pct set <CTID> --hostname <имя> --description "<описание>"
+```
+
+```bash
+# [W] Сменить VMID: резервная копия, затем восстановление с новым ID — PROXMOX-LXC-DEBIAN12-TEMPLATE-2026-001
+# Это единственный поддерживаемый способ (в том числе для дисков на Ceph RBD). Восстановление
+# выполняется через GUI или pct restore / qmrestore (в источнике без параметров)
+vzdump <старый_id> --mode snapshot --storage local
+```
+
+```bash
+# [W] Свежий клон: SSH «доступ запрещён» — зайти с узла и разрешить root по паролю — PROXMOX-LXC-DEBIAN12-TEMPLATE-2026-001
+# Debian по умолчанию не пускает root по паролю (PermitRootLogin prohibit-password). Это ослабляет
+# защиту SSH; оставлять ли так — отдельное решение (замечание не из источника)
+pct start <CTID>
+pct enter <CTID>
+sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && systemctl restart ssh
+```
+
+```bash
+# [W] apt возвращает 404 на пакетах — обновить устаревший кэш списков в образе шаблона
+# PROXMOX-LXC-DEBIAN12-TEMPLATE-2026-001
+apt-get update
+```
+
+```bash
+# [W] SSH зависает на новом клоне из-за обратного DNS: прописать UseDNS no с узла
+# PROXMOX-LXC-DEBIAN12-TEMPLATE-2026-001
+# Не путать с зависанием из-за pam_systemd (другая причина, LINUX-SSH-PAM-SYSTEMD-ZABBIX-2026-001)
+pct exec <CTID> -- bash -c "echo 'UseDNS no' >> /etc/ssh/sshd_config && systemctl restart ssh"
+```
+
 ---
 
 ## Покрытие
@@ -908,12 +1210,18 @@ qm config <VMID> | grep usb
 - `PROXMOX-AD-THIRD-DC-PROMOTION-2026-001`
 - `PROXMOX-RDS-2003-2026-001`
 - `PROXMOX-VM2001-USB-HASP-2026-001`
+- `PROXMOX-VAULTWARDEN-INSTALL-2026-001`
+- `PROXMOX-VAULTWARDEN-HTTPS-CADDY-2026-001`
+- `PROXMOX-VAULTWARDEN-ADMIN-TOKEN-2026-001`
+- `PROXMOX-VAULTWARDEN-USERS-2026-001`
+- `PROXMOX-WINSRV2022-TEMPLATE-2026-001`
+- `PROXMOX-LXC-DEBIAN12-TEMPLATE-2026-001`
 
 Команды `pvesh get /cluster/resources` и `qm guest cmd <VMID> get-host-name`
 проверены администратором 2026-10-20 (отдельного документа-источника нет).
 
-**Ещё не вошли** (будут добавлены следующими правками): Vaultwarden,
-шаблоны (Windows Server, LXC), диагностика SSH и `pam_systemd`, `bond0`.
+**Ещё не вошли** (будут добавлены следующими правками): диагностика SSH и `pam_systemd`,
+`bond0`.
 До их добавления искать команды
 в самих документах по `INDEX.md`.
 
