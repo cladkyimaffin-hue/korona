@@ -7,8 +7,9 @@
 
   ### Шаг 17 — Создаём каскадный ИИ-роутер /opt/sysagent/internal/llm/router.go
  1. Записываем файл /opt/sysagent/internal/llm/router.go
-mkdir -p /opt/sysagent/internal/llm
-cat <<'EOF' > /opt/sysagent/internal/llm/router.go
+ 2. mkdir -p /opt/sysagent/internal/llm
+
+-	cat <<'EOF' > /opt/sysagent/internal/llm/router.go
 // Пакет llm реализует каскадный клиент языковых моделей (OpenAI-совместимый /chat/completions:
 // GitHub Models, Mistral API, Ollama, OpenRouter и др.) с автоматическим обходом лимитов (HTTP 429),
 // ручным выбором основной модели и безопасным вызовом инструментов ядра sysagentd.
