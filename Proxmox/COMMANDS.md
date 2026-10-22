@@ -711,6 +711,179 @@ apt install gdisk
 partprobe
 ```
 
+## 10. Active Directory: контроллер домена (PowerShell, внутри ВМ)
+
+Домен, сайт и имена серверов — плейсхолдеры. Удаление осиротевшего объекта сервера в AD
+после неудачной промоции (`Get-ADObject`, `Remove-ADObject`) в источнике описано без
+полных команд и сюда не вошло: смотреть `PROXMOX-AD-THIRD-DC-PROMOTION-2026-001`.
+
+```powershell
+# [R] Остатки прерванной промоции перед повторным запуском — PROXMOX-AD-THIRD-DC-PROMOTION-2026-001
+# Ожидается: False, пусто, пусто. Повторять Install-ADDSDomainController, не проверив и не очистив
+# артефакты (файлы NTDS, DSA Database Epoch в реестре, осиротевший объект сервера в AD), нельзя
+Test-Path C:\Windows\NTDS\ntds.dit
+Get-ChildItem C:\Windows\NTDS -Force -ErrorAction SilentlyContinue
+Get-ItemProperty 'HKLM:\System\CurrentControlSet\Services\NTDS\Parameters' -Name 'DSA Database Epoch' -ErrorAction SilentlyContinue
+```
+
+```powershell
+# [W] Повысить сервер до контроллера домена — PROXMOX-AD-THIRD-DC-PROMOTION-2026-001
+# Не прерывать (Ctrl+C / Ctrl+Z): команда может молчать 5–15 минут. Пароль DSRM вводится
+# интерактивно, в команде и в файлах репозитория его нет
+Install-ADDSDomainController `
+  -DomainName "<домен>" `
+  -Credential (Get-Credential) `
+  -SiteName "<сайт>" `
+  -InstallDns:$true `
+  -NoGlobalCatalog:$false `
+  -ReplicationSourceDC "<FQDN_работающего_DC>" `
+  -DatabasePath "C:\Windows\NTDS" `
+  -LogPath "C:\Windows\NTDS" `
+  -SysvolPath "C:\Windows\SYSVOL" `
+  -SafeModeAdministratorPassword (Read-Host -AsSecureString "Введите пароль DSRM") `
+  -Confirm:$false
+```
+
+```powershell
+# [R] Что делает процесс при «зависшей» промоции — из второй, отдельной сессии, не трогая окно
+# PROXMOX-AD-THIRD-DC-PROMOTION-2026-001
+# Процесс, нагружающий CPU, означает, что DCPromo не завершился (причина не обязательно QuickEdit)
+Get-Process powershell
+```
+
+```powershell
+# [D] REQUIRES_APPROVAL — принудительно завершить зависший процесс DCPromo — PROXMOX-AD-THIRD-DC-PROMOTION-2026-001
+# Прерывает промоцию посреди работы; файлы C:\Windows\NTDS (ntds.dit, edb.log) могут остаться
+# заблокированными движком ESE до перезагрузки сервера, дальше нужна очистка артефактов (проверка выше).
+# Только по явному подтверждению администратора; PID брать из свежего вывода Get-Process
+Stop-Process -Id <PID> -Force
+Get-Process powershell
+```
+
+```powershell
+# [W] Перезагрузить сервер, чтобы снять блокировку файлов NTDS после остановки процесса
+# PROXMOX-AD-THIRD-DC-PROMOTION-2026-001
+# Прерывает всю работу сервера
+Restart-Computer -Force
+```
+
+```powershell
+# [R] Репликация и здоровье AD после промоции — PROXMOX-AD-THIRD-DC-PROMOTION-2026-001
+# Нормой в источнике считалось: 0 сбоев по партнёрам, ключевые тесты dcdiag PASS
+repadmin /replsummary
+repadmin /showrepl
+Get-ADDomainController -Filter *
+dcdiag /v /c
+```
+
+```powershell
+# [R] Тесты, зависящие от SYSVOL — PROXMOX-AD-THIRD-DC-PROMOTION-2026-001
+# Сразу после промоции Advertising и NetLogons могут не проходить, пока SYSVOL (DFSR) в состоянии
+# Initializing (State=2): ждать завершения DFSR (State=4 и событие 4114), это не отдельная поломка
+dcdiag /test:Advertising
+dcdiag /test:NetLogons
+```
+
+```powershell
+# [W] Ускорить начальную синхронизацию SYSVOL (DFSR) (по порядку) — PROXMOX-AD-THIRD-DC-PROMOTION-2026-001
+Install-WindowsFeature RSAT-DFS-Mgmt-Con
+dfsrdiag pollad
+```
+
+```powershell
+# [R] Очередь репликации SYSVOL — PROXMOX-AD-THIRD-DC-PROMOTION-2026-001
+# Конечное и убывающее число файлов (в источнике — 99) означает, что DFSR работает, а не завис
+dfsrdiag backlog /rgname:"Domain System Volume" /rfname:"SYSVOL Share" /smem:<DC_источник> /rmem:<этот_DC>
+```
+
+## 11. RDS: терминальный сервер и лицензирование (PowerShell, внутри ВМ)
+
+Блоки выполняются на сервере сеансов (TC) и на сервере лицензий (контроллер домена). Имена
+серверов, домен и группы — плейсхолдеры. В командлетах RDS использовать полный FQDN, не
+короткое имя. Роль RDS-Licensing и активация сервера лицензий не заменяют покупку RDS CAL;
+срок льготного периода — в `PROXMOX-RDS-2003-2026-001`.
+
+```powershell
+# [W] Установить роль Session Host на сервере сеансов — PROXMOX-RDS-2003-2026-001
+Install-WindowsFeature -Name RDS-RD-Server -IncludeManagementTools
+Get-WindowsFeature -Name RDS-RD-Server
+```
+
+```powershell
+# [W] Создать RDS Deployment и коллекцию сеансов (по порядку) — PROXMOX-RDS-2003-2026-001
+# Connection Broker и Session Host — один сервер; только полный FQDN, не короткое имя
+New-RDSessionDeployment -ConnectionBroker "<FQDN_TC>" -SessionHost "<FQDN_TC>"
+Get-RDServer
+New-RDSessionCollection -CollectionName "<коллекция>" -SessionHost "<FQDN_TC>" -ConnectionBroker "<FQDN_TC>"
+Get-RDSessionCollection -ConnectionBroker "<FQDN_TC>"
+```
+
+```powershell
+# [W] Разрешить RDP-подключение доменной группе — PROXMOX-RDS-2003-2026-001
+# Grant-RDAccess в этой среде отсутствует — использовать Add-LocalGroupMember.
+# Не выдавать доступ всем пользователям домена в production без отдельного подтверждения
+# требований безопасности
+Add-LocalGroupMember -Group "Remote Desktop Users" -Member "<ДОМЕН>\<группа>"
+Get-LocalGroupMember -Group "Remote Desktop Users"
+```
+
+```powershell
+# [W] Установить роль сервера лицензий — на контроллере домена, не на сервере сеансов
+# PROXMOX-RDS-2003-2026-001
+# Активация сервера лицензий — мастером в «Диспетчере лицензирования удалённых рабочих столов»
+# (ярлык или полный путь: lsmgr.exe как команда может не находиться на Windows Server 2022/2025)
+Install-WindowsFeature -Name RDS-Licensing -IncludeManagementTools
+```
+
+```powershell
+# [W] Режим лицензирования и сервер лицензий — PROXMOX-RDS-2003-2026-001
+# Параметры -LicensingMode и -LicenseServer есть у Set-RDSessionDeployment, а НЕ у
+# Set-RDSessionCollectionConfiguration (тот вернёт «не удаётся найти параметр»)
+Set-RDSessionDeployment -ConnectionBroker "<FQDN_TC>" -LicensingMode "PerUser" -LicenseServer "<FQDN_сервера_лицензий>"
+Get-RDSessionDeployment -ConnectionBroker "<FQDN_TC>" | Select-Object LicensingMode, LicenseServer
+```
+
+```powershell
+# [R] Что записано в реестре о лицензировании — PROXMOX-RDS-2003-2026-001
+# LicensingMode: 4 означает Per User. Запись в реестре применяется только после перезапуска TermService
+Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\RCM\Licensing Core" | Select-Object LicenseServers, LicensingMode
+```
+
+```powershell
+# [W] Перезапустить TermService, чтобы подхватить параметры лицензирования (по порядку)
+# PROXMOX-RDS-2003-2026-001
+# Служба кэширует эти значения при старте. Перезапуск службы удалённых рабочих столов разрывает
+# текущие RDP-сеансы (замечание не из источника) — выполнять вне рабочего времени
+Restart-Service -Name TermService -Force
+Set-Service -Name TermService -StartupType Automatic
+Get-Service -Name TermService | Select-Object Status, StartType
+```
+
+```powershell
+# [W] Вернуть тип запуска TermService в ручной (откат только типа запуска) — PROXMOX-RDS-2003-2026-001
+Set-Service -Name TermService -StartupType Manual
+```
+
+## 12. USB-ключ (HASP) в ВМ
+
+```bash
+# [R] Какое USB-устройство проброшено в ВМ и что есть на хосте — PROXMOX-VM2001-USB-HASP-2026-001
+# Список USB в GUI Proxmox не считать достаточным: сверять Vendor:Device ID через lsusb.
+# Встроенный KVM/IPMI-контроллер сервера Huawei 2288H V5 (12d1:0003) — служебное устройство,
+# не ключ защиты
+qm config <VMID> | grep usb
+lsusb
+```
+
+```bash
+# [W] Пробросить USB-устройство в ВМ по Vendor:Device ID — PROXMOX-VM2001-USB-HASP-2026-001
+# ID брать из свежего вывода lsusb. Для работающей ВМ изменение применяется только после её
+# перезагрузки. Откат — вернуть прежнее значение usb0; в источнике прежним был служебный
+# KVM-контроллер, возвращать который в ВМ не нужно
+qm set <VMID> --usb0 host=<VendorID>:<DeviceID>
+qm config <VMID> | grep usb
+```
+
 ---
 
 ## Покрытие
@@ -732,12 +905,15 @@ partprobe
 - `PROXMOX-CEPH-OSD-DISK-PREP-2026-001`
 - `PROXMOX-CLUSTER-QDEVICE-SETUP-2026-001`
 - `PROXMOX-QDEVICE-REPLACEMENT-2026-001`
+- `PROXMOX-AD-THIRD-DC-PROMOTION-2026-001`
+- `PROXMOX-RDS-2003-2026-001`
+- `PROXMOX-VM2001-USB-HASP-2026-001`
 
 Команды `pvesh get /cluster/resources` и `qm guest cmd <VMID> get-host-name`
 проверены администратором 2026-10-20 (отдельного документа-источника нет).
 
-**Ещё не вошли** (будут добавлены следующими правками): AD, RDS, USB HASP,
-Vaultwarden, шаблоны (Windows Server, LXC), диагностика SSH и `pam_systemd`, `bond0`.
+**Ещё не вошли** (будут добавлены следующими правками): Vaultwarden,
+шаблоны (Windows Server, LXC), диагностика SSH и `pam_systemd`, `bond0`.
 До их добавления искать команды
 в самих документах по `INDEX.md`.
 
