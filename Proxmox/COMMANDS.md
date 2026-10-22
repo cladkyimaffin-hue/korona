@@ -2,7 +2,7 @@
 schema_version: "1.1"
 status: "in_progress"
 date_created: 2026-10-21
-date_modified: 2026-10-21
+date_modified: 2026-10-22
 maintainer: "cladkyimaffin-hue"
 file_type: "commands_reference"
 confidence: "Команды перенесены из документов домена без изменения смысла; контекст, ожидаемый вывод и ограничения — в документе-источнике. Покрытие неполное: список источников и то, что не вошло, — в конце файла."
@@ -394,9 +394,210 @@ Resize-Partition -DriveLetter C -Size (Get-PartitionSupportedSize -DriveLetter C
 winsat disk -drive C
 ```
 
+## 8. Zabbix
+
+Токены и пароли здесь — только плейсхолдеры. Имена пользователей, токенов, адреса и
+CTID брать из `AI-environment_facts-korona-proxmox.md`. Шаги в веб-интерфейсе Zabbix
+(макросы, фильтры LLD, шаблоны) команд не содержат и сюда не входят.
+
+```bash
+# [R] Состояние служб стека Zabbix — внутри контейнера Zabbix (pct enter <CTID>)
+# ZABBIX-STACK-INSTALL-2026-001
+systemctl is-active zabbix-server zabbix-agent nginx php8.2-fpm mariadb
+```
+
+```bash
+# [W] Установить пакеты стека Zabbix в контейнере — ZABBIX-STACK-INSTALL-2026-001
+pct exec <CTID> -- bash -c "apt install -y zabbix-server-mysql zabbix-frontend-php zabbix-nginx-conf zabbix-sql-scripts zabbix-agent mariadb-server"
+```
+
+```bash
+# [W] Включить nesting, если MariaDB не стартует в непривилегированном LXC (226/NAMESPACE) —
+# ZABBIX-STACK-INSTALL-2026-001. Контейнер в privileged не переводить. Перезагрузка контейнера
+# прерывает мониторинг на время старта
+pct set <CTID> -features nesting=1
+pct reboot <CTID>
+systemctl status mariadb   # внутри контейнера, должен стать active
+```
+
+```bash
+# [W] Создать БД и импортировать схему (по порядку, ОДНОКРАТНО) — ZABBIX-STACK-INSTALL-2026-001
+# Импорт схемы не идемпотентен: повторный запуск даёт дубли ключей. <ПАРОЛЬ_БД> заменить на
+# реальный надёжный пароль: не выполнять с плейсхолдером буквально
+pct exec <CTID> -- bash -c "
+mysql -e \"CREATE DATABASE IF NOT EXISTS zabbix CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;\"
+mysql -e \"CREATE USER IF NOT EXISTS 'zabbix'@'localhost' IDENTIFIED BY '<ПАРОЛЬ_БД>';\"
+mysql -e \"GRANT ALL PRIVILEGES ON zabbix.* TO 'zabbix'@'localhost';\"
+mysql -e \"FLUSH PRIVILEGES;\"
+zcat /usr/share/zabbix-sql-scripts/mysql/server.sql.gz | mysql --default-character-set=utf8mb4 -uzabbix -p'<ПАРОЛЬ_БД>' zabbix
+"
+```
+
+```bash
+# [W] Настроить конфиги Zabbix, nginx и PHP-FPM, перезапустить и включить службы (по порядку)
+# ZABBIX-STACK-INSTALL-2026-001. Перезапуск прерывает веб-интерфейс и сбор метрик
+pct exec <CTID> -- bash -c "
+sed -i 's/^# DBHost=localhost/DBHost=localhost/' /etc/zabbix/zabbix_server.conf
+sed -i 's/^# DBName=zabbix/DBName=zabbix/' /etc/zabbix/zabbix_server.conf
+sed -i 's/^# DBUser=zabbix/DBUser=zabbix/' /etc/zabbix/zabbix_server.conf
+sed -i '/^DBUser=zabbix/a DBPassword=<ПАРОЛЬ_БД>' /etc/zabbix/zabbix_server.conf
+sed -i 's|^#        listen|        listen|' /etc/zabbix/nginx.conf
+sed -i 's|^#        server_name|        server_name|' /etc/zabbix/nginx.conf
+sed -i 's|server_name example.com;|server_name <имя_сервера> <адрес_zabbix>;|' /etc/zabbix/nginx.conf
+sed -i 's|^; php_value\[date.timezone\] = Europe/Riga|php_value[date.timezone] = Europe/Moscow|' /etc/zabbix/php-fpm.conf
+systemctl restart zabbix-server zabbix-agent nginx php8.2-fpm
+systemctl enable zabbix-server zabbix-agent nginx php8.2-fpm
+"
+```
+
+```bash
+# [W] Сменить пароль пользователя БД zabbix — ZABBIX-STACK-INSTALL-2026-001
+# Рекомендовано в документе; на момент документа не выполнено. Окно обслуживания (по порядку):
+# 1) в консоли mysql: ALTER USER 'zabbix'@'localhost' IDENTIFIED BY '<новый_пароль>';
+# 2) поправить DBPassword= в /etc/zabbix/zabbix_server.conf
+systemctl restart zabbix-server
+```
+
+```bash
+# [R] Ошибки несовпадения имени хоста в журнале сервера Zabbix — ZABBIX-LXC-FALSE-ALERTS-2026-001
+# Много повторов «host [X] not found» означает, что Hostname агента и Host name в Zabbix не совпадают
+tail -n 100 /var/log/zabbix/zabbix_server.log | grep "not found"
+```
+
+```bash
+# [W] Роль, пользователь и API-токен для мониторинга (по порядку) — ZABBIX-PVE-API-MONITORING-2026-001
+# Перечень прав роли — как в документе-источнике. Токен создаётся с privsep=1: права пользователя
+# он НЕ наследует (следующий блок). Секрет токена выводится один раз — сразу сохранить
+pveum role add <роль> -privs "Sys.Audit,VM.Audit,Datastore.Audit,Sys.Modify,SDN.Audit"
+pveum user add <пользователь>@pve
+pveum acl modify / --users <пользователь>@pve --roles <роль>
+pveum user token add <пользователь>@pve <имя_токена>
+```
+
+```bash
+# [W] ACL на сам токен — ZABBIX-PVE-API-MONITORING-2026-001
+# Без явного ACL токен получает 403, даже если у пользователя права есть. В документе: /nodes
+# для данных узлов; для cluster/status нужны права на /
+pveum acl modify <путь> --token '<пользователь>@pve!<имя_токена>' --role <роль>
+```
+
+```bash
+# [R] Права пользователя и токена — ZABBIX-PVE-API-MONITORING-2026-001
+# Команд pveum user show и pveum user list-permissions в этой версии Proxmox нет
+pveum user permissions <пользователь>@pve --path <путь>
+pveum user token list <пользователь>@pve
+pveum user token permissions <пользователь>@pve <имя_токена>
+```
+
+```bash
+# [R] Проверка API напрямую, в обход Zabbix — ZABBIX-PVE-API-MONITORING-2026-001
+# Формат заголовка PVEAPIToken=USER@REALM!TOKENID=SECRET: перед секретом знак «=», не «:».
+# Одинарные кавычки обязательны: восклицательный знак в двойных даёт history expansion в bash.
+# Секрет подставить вручную; он попадает в историю оболочки — не сохранять его в файлах репозитория
+curl -k -s -w "\nHTTP_CODE: %{http_code}\n" \
+  -H 'Authorization: PVEAPIToken=<пользователь>@pve!<имя_токена>=<СЕКРЕТ>' \
+  "https://<адрес_узла>:8006/api2/json/<путь_API>"
+```
+
+```bash
+# [W] Пересоздать токен (по порядку) — ZABBIX-PVE-API-MONITORING-2026-001
+# Рекомендовано в документе, на момент документа не выполнено. Сначала проверить текущий токен
+# прямым curl (блок выше) — пересоздание может не понадобиться. Роль в документе — PVEAuditor;
+# расхождение с кастомной ролью мониторинга документ не объясняет
+pveum user token add <пользователь>@pve <новое_имя_токена> --comment "<комментарий>"
+pveum acl modify / --roles PVEAuditor --token '<пользователь>@pve!<новое_имя_токена>'
+```
+
+```bash
+# [W] Отключить privsep у токена — ZABBIX-PVE-API-MONITORING-2026-001
+# Обходной путь, менее безопасный: уравнивает права токена с правами пользователя целиком.
+# Основным путём не считать — предпочитать явный ACL на токен
+pveum user token modify <пользователь>@pve <имя_токена> --privsep 0
+```
+
+```bash
+# [R] Реальная версия ОС узла перед выбором репозитория — ZABBIX-AGENT-PVE-NODES-2026-001
+# Версию проверять, а не предполагать: репозиторий Zabbix для другого выпуска Debian даёт
+# конфликт зависимостей
+cat /etc/os-release
+```
+
+```bash
+# [W] Поставить zabbix-agent из штатного репозитория Debian (по порядку) —
+# ZABBIX-AGENT-PVE-NODES-2026-001. Сторонний репозиторий Zabbix для другого выпуска Debian
+# не добавлять (конфликт libldap)
+apt remove --purge -y zabbix-release
+apt update
+apt install -y zabbix-agent
+```
+
+```bash
+# [R] Текущий формат строк Server и ServerActive в конфиге агента — ZABBIX-AGENT-PVE-NODES-2026-001
+# Смотреть до замены: строка может быть закомментирована или иметь другое значение
+grep -E "^Server=|^ServerActive=|^#\s*Server=|^#\s*ServerActive=" /etc/zabbix/zabbix_agentd.conf
+```
+
+```bash
+# [W] Указать сервер Zabbix в конфиге агента (по порядку) — ZABBIX-AGENT-PVE-NODES-2026-001
+# Результат проверять grep в последней строке, не по отсутствию ошибки у sed
+sed -i 's/^#\?\s*Server=.*/Server=<адрес_zabbix>/' /etc/zabbix/zabbix_agentd.conf
+sed -i 's/^#\?\s*ServerActive=.*/ServerActive=<адрес_zabbix>/' /etc/zabbix/zabbix_agentd.conf
+systemctl restart zabbix-agent
+systemctl enable zabbix-agent
+grep -E "^Server=|^ServerActive=" /etc/zabbix/zabbix_agentd.conf
+```
+
+```bash
+# [R] Проверка агента — ZABBIX-AGENT-PVE-NODES-2026-001
+# Зелёный ZBX-индикатор подтверждает связь, но не то, что собираются полезные данные
+zabbix_agentd -V
+systemctl status zabbix-agent
+grep "connected to" /var/log/zabbix/zabbix_agentd.log | tail -3
+```
+
+```bash
+# [R] Память в LXC: free и /proc/meminfo против zabbix_get — ZABBIX-LXC-FALSE-ALERTS-2026-001
+# vm.memory.size[*] в LXC возвращает память физического хоста, а не лимит контейнера
+free -h
+cat /proc/meminfo
+zabbix_get -s 127.0.0.1 -k vm.memory.size[total]
+```
+
+```bash
+# [W] Кастомные ключи памяти для LXC поверх /proc/meminfo (по порядку) — ZABBIX-LXC-FALSE-ALERTS-2026-001
+# Унаследованные от шаблона элементы на vm.memory.size[*] отключать на уровне хоста в Zabbix
+mkdir -p /etc/zabbix/zabbix_agentd.d
+cat << 'EOF' > /etc/zabbix/zabbix_agentd.d/lxc_memory.conf
+UserParameter=custom.linux.memory.pavailable,awk '/MemTotal/ {t=$2} /MemAvailable/ {a=$2} END {printf "%.2f", (a/t)*100}' /proc/meminfo
+UserParameter=custom.linux.memory.pused,awk '/MemTotal/ {t=$2} /MemAvailable/ {a=$2} END {printf "%.2f", 100-(a/t)*100}' /proc/meminfo
+EOF
+systemctl restart zabbix-agent
+zabbix_get -s 127.0.0.1 -k custom.linux.memory.pavailable
+```
+
+```bash
+# [R] Загрузка: реальная нагрузка или шторм переключений контекста — ZABBIX-LXC-FALSE-ALERTS-2026-001
+# Сотни тысяч переключений контекста (cs) в секунду при 100% idle — признак шторма
+vmstat 1 5
+```
+
+```bash
+# [W] Сбросить кэш конфигурации после правки имени хоста в Zabbix (по порядку) — ZABBIX-LXC-FALSE-ALERTS-2026-001
+# После перезапуска ожидать разрыв сбора метрик на 5–15 секунд — это не новый инцидент
+systemctl restart zabbix-server
+tail -n 30 /var/log/zabbix/zabbix_server.log | grep "not found"
+```
+
+```bash
+# [R] Состояние интерфейса — ZABBIX-LXC-FALSE-ALERTS-2026-001
+# Чтение /sys/class/net/<интерфейс>/speed у интерфейса в состоянии DOWN даёт Invalid argument —
+# это поведение ядра, а не агента
+ip -details link show <интерфейс>
+```
+
 ---
 
-## Покрытие версии 1
+## Покрытие
 
 Команды перенесены из документов:
 
@@ -408,15 +609,18 @@ winsat disk -drive C
 - `PROXMOX-CEPH-PUBLIC-NETWORK-1C-2026-001`
 - `PROXMOX-CEPH-BOND0-LATENCY-INVESTIGATION-2026-001`
 - `NETWORK-SFP-OPTICAL-MISMATCH-2026-001`
+- `ZABBIX-STACK-INSTALL-2026-001`
+- `ZABBIX-PVE-API-MONITORING-2026-001`
+- `ZABBIX-AGENT-PVE-NODES-2026-001`
+- `ZABBIX-LXC-FALSE-ALERTS-2026-001`
 
 Команды `pvesh get /cluster/resources` и `qm guest cmd <VMID> get-host-name`
 проверены администратором 2026-10-20 (отдельного документа-источника нет).
 
-**Ещё не вошли** (будут добавлены следующими правками): Zabbix (`ZABBIX-*`, в том
-числе `pveum` и токены — только плейсхолдеры), подготовка и очистка дисков под
-OSD (`PROXMOX-CEPH-OSD-DISK-PREP-2026-001`, там класс [D]: `wipefs`, `sgdisk`),
-QDevice, AD, RDS, USB HASP, Vaultwarden, шаблоны (Windows Server, LXC),
-диагностика SSH и `pam_systemd`, `bond0`. До их добавления искать команды
+**Ещё не вошли** (будут добавлены следующими правками): подготовка и очистка
+дисков под OSD (`PROXMOX-CEPH-OSD-DISK-PREP-2026-001`, там класс [D]: `wipefs`,
+`sgdisk`), QDevice, AD, RDS, USB HASP, Vaultwarden, шаблоны (Windows Server,
+LXC), диагностика SSH и `pam_systemd`, `bond0`. До их добавления искать команды
 в самих документах по `INDEX.md`.
 
 ## Как дополнять
