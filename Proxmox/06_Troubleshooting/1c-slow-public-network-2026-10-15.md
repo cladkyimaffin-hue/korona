@@ -132,7 +132,7 @@ journalctl -u corosync-qdevice --since "-1 day"
 ## Конфликты
 
 - Скорость `vmbr0` на pve01: схема (10 Гбит/с) против команд (1 Гбит/с на `nic2`). Решено командами, см. `00_Meta/CONFLICTS.md`.
-- Имя ВМ 2001: `Srv1c` против `win-1c-app-01`. Открыто, см. `00_Meta/CONFLICTS.md`.
+- Имя ВМ 2001: `Srv1c` против `win-1c-app-01`. Решено командой `qm config 2001` (2026-10-18): имя в Proxmox — `Srv1c`, см. `00_Meta/CONFLICTS.md`.
 
 ## Связанные документы
 
