@@ -595,6 +595,44 @@ tail -n 30 /var/log/zabbix/zabbix_server.log | grep "not found"
 ip -details link show <интерфейс>
 ```
 
+## 9. Диски под Ceph OSD
+
+Порядок подготовки: проверить время, осмотреть диск, очистить, проверить результат.
+Очистка диска — класс [D]. Создание самих OSD и пулов в источнике выполняется через
+веб-интерфейс (Datacenter → Ceph → OSD / Pools) и сюда не входит.
+
+```bash
+# [R] Синхронизация времени перед созданием OSD — PROXMOX-CEPH-OSD-DISK-PREP-2026-001
+# Критична для Ceph: рассинхронизация времени ломает кворум. Проверять на обоих узлах;
+# ожидается малое смещение (в документе — меньше 1 мс)
+chronyc tracking
+```
+
+```bash
+# [R] Состояние дисков до создания OSD и после очистки — PROXMOX-CEPH-OSD-DISK-PREP-2026-001
+# Именно lsblk -f: без -f не видны FSTYPE и UUID остаточных файловых систем, и грязный диск
+# можно принять за чистый. После очистки ожидается пусто (без FSTYPE, UUID и MOUNTPOINTS)
+lsblk -d -o NAME,SIZE,MODEL,TYPE,MOUNTPOINT
+lsblk -f /dev/<диск1> /dev/<диск2>
+```
+
+```bash
+# [D] REQUIRES_APPROVAL — очистить диск перед созданием OSD (по порядку) — PROXMOX-CEPH-OSD-DISK-PREP-2026-001
+# Безвозвратно удаляет все данные на устройстве. Только по явному подтверждению администратора.
+# Имя устройства брать из свежего вывода lsblk, не из документов; системный диск и любой диск
+# с нужными данными не использовать. wipefs -a убирает сигнатуры файловых систем,
+# sgdisk --zap-all — таблицу GPT, включая резервную копию GPT в конце диска
+wipefs -a /dev/<диск>
+sgdisk --zap-all /dev/<диск>
+```
+
+```bash
+# [W] Установить gdisk (даёт sgdisk), если команды нет; partprobe — если ядро не сразу увидело
+# изменения после очистки (варианты, не по порядку) — PROXMOX-CEPH-OSD-DISK-PREP-2026-001
+apt install gdisk
+partprobe
+```
+
 ---
 
 ## Покрытие
@@ -613,14 +651,14 @@ ip -details link show <интерфейс>
 - `ZABBIX-PVE-API-MONITORING-2026-001`
 - `ZABBIX-AGENT-PVE-NODES-2026-001`
 - `ZABBIX-LXC-FALSE-ALERTS-2026-001`
+- `PROXMOX-CEPH-OSD-DISK-PREP-2026-001`
 
 Команды `pvesh get /cluster/resources` и `qm guest cmd <VMID> get-host-name`
 проверены администратором 2026-10-20 (отдельного документа-источника нет).
 
-**Ещё не вошли** (будут добавлены следующими правками): подготовка и очистка
-дисков под OSD (`PROXMOX-CEPH-OSD-DISK-PREP-2026-001`, там класс [D]: `wipefs`,
-`sgdisk`), QDevice, AD, RDS, USB HASP, Vaultwarden, шаблоны (Windows Server,
-LXC), диагностика SSH и `pam_systemd`, `bond0`. До их добавления искать команды
+**Ещё не вошли** (будут добавлены следующими правками): QDevice, AD, RDS, USB HASP,
+Vaultwarden, шаблоны (Windows Server, LXC), диагностика SSH и `pam_systemd`, `bond0`.
+До их добавления искать команды
 в самих документах по `INDEX.md`.
 
 ## Как дополнять
