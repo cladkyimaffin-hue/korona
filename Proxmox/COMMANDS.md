@@ -322,6 +322,84 @@ nc -vz <адрес_qdevice> 5403
 journalctl -u corosync-qdevice --since "-1 day"
 ```
 
+```bash
+# [R] Состояние кворума — PROXMOX-CLUSTER-QDEVICE-SETUP-2026-001, PROXMOX-QDEVICE-REPLACEMENT-2026-001
+# Для двух узлов с QDevice ожидается Expected votes: 3 и флаг Qdevice в Flags.
+# Команды pvecm qdevice status не существует: состояние смотреть через pvecm status и corosync-qdevice-tool -s
+pvecm status
+```
+
+```bash
+# [W] Создать кластер и добавить второй узел — PROXMOX-CLUSTER-QDEVICE-SETUP-2026-001
+# Две команды на разных узлах: pvecm create — на первом, pvecm add — на втором (не подряд на одной машине).
+# До настройки QDevice потеря любого из двух узлов блокирует кластер. Резервная копия конфигурации
+# создаётся автоматически при добавлении узла (в источнике — каталог /var/lib/pve-cluster/backup/)
+pvecm create <имя_кластера>
+pvecm add <адрес_первого_узла>
+```
+
+```bash
+# [W] Установить corosync-qnetd на отдельном хосте QDevice, не на узлах кластера (по порядку)
+# PROXMOX-CLUSTER-QDEVICE-SETUP-2026-001, PROXMOX-QDEVICE-REPLACEMENT-2026-001
+apt update && apt install -y corosync-qnetd
+systemctl enable --now corosync-qnetd
+systemctl status corosync-qnetd.service
+```
+
+```bash
+# [W] Установить corosync-qdevice на обоих узлах Proxmox — PROXMOX-CLUSTER-QDEVICE-SETUP-2026-001
+apt update && apt install corosync-qdevice -y
+```
+
+```bash
+# [W] Имя хоста QDevice и запись в hosts (на хосте QDevice, от обычного пользователя с sudo; по порядку)
+# PROXMOX-QDEVICE-REPLACEMENT-2026-001
+# sudo echo ... >> /etc/hosts не работает: перенаправление выполняется от обычного пользователя —
+# использовать | sudo tee -a. Имя хоста лучше задавать до pvecm qdevice setup (рекомендация, INFERRED)
+sudo hostnamectl set-hostname <fqdn_qdevice>
+echo "<адрес_qdevice> <fqdn_qdevice> <короткое_имя>" | sudo tee -a /etc/hosts
+hostname -f
+```
+
+```bash
+# [R] Открытый ключ root на узле, с которого выполняется pvecm qdevice setup — PROXMOX-QDEVICE-REPLACEMENT-2026-001
+# Только открытый ключ (.pub). Копировать целой строкой, сохраняя пробелы между типом ключа,
+# телом и комментарием: ключ вида ssh-rsaAAAA... сервер отвергает
+cat /root/.ssh/id_rsa.pub
+```
+
+```bash
+# [W] Права на хосте QDevice для входа root по ключу, после добавления ключа в /root/.ssh/authorized_keys
+# PROXMOX-QDEVICE-REPLACEMENT-2026-001
+# В Debian 13 вход root по паролю отключён (PermitRootLogin prohibit-password)
+chmod 700 /root/.ssh
+chmod 600 /root/.ssh/authorized_keys
+```
+
+```bash
+# [R] Проверка входа root по ключу с узла на хост QDevice — PROXMOX-QDEVICE-REPLACEMENT-2026-001
+# Должно вернуть имя хоста QDevice без запроса пароля. accept-new при первом подключении
+# добавляет ключ хоста в known_hosts
+ssh -o StrictHostKeyChecking=accept-new root@<адрес_qdevice> "hostname -f"
+```
+
+```bash
+# [W] Подключить QDevice (с одного узла, по порядку) — PROXMOX-CLUSTER-QDEVICE-SETUP-2026-001, PROXMOX-QDEVICE-REPLACEMENT-2026-001
+# Нужен вход root с этого узла на хост QDevice по SSH-ключу без пароля; TCP-порт 5403 должен быть
+# доступен между узлами и хостом QDevice. pvecm add qdevice <IP> в PVE 9.2 не работает (400 too many arguments)
+pvecm qdevice setup <адрес_qdevice>
+pvecm status
+```
+
+```bash
+# [W] Удалить QDevice: откат или первый шаг замены (по порядку) — PROXMOX-CLUSTER-QDEVICE-SETUP-2026-001, PROXMOX-QDEVICE-REPLACEMENT-2026-001
+# После удаления Expected votes: 2 — кворум держится только на двух узлах, потеря любого узла
+# в этом окне остановит кластер. Не выполнять, когда один из узлов недоступен.
+# Удаление узла из кластера (pvecm delnode) — отдельная процедура, в справочник не вошла
+pvecm qdevice remove
+pvecm status
+```
+
 ## 7. Windows-гость (PowerShell, внутри ВМ)
 
 ```powershell
@@ -652,11 +730,13 @@ partprobe
 - `ZABBIX-AGENT-PVE-NODES-2026-001`
 - `ZABBIX-LXC-FALSE-ALERTS-2026-001`
 - `PROXMOX-CEPH-OSD-DISK-PREP-2026-001`
+- `PROXMOX-CLUSTER-QDEVICE-SETUP-2026-001`
+- `PROXMOX-QDEVICE-REPLACEMENT-2026-001`
 
 Команды `pvesh get /cluster/resources` и `qm guest cmd <VMID> get-host-name`
 проверены администратором 2026-10-20 (отдельного документа-источника нет).
 
-**Ещё не вошли** (будут добавлены следующими правками): QDevice, AD, RDS, USB HASP,
+**Ещё не вошли** (будут добавлены следующими правками): AD, RDS, USB HASP,
 Vaultwarden, шаблоны (Windows Server, LXC), диагностика SSH и `pam_systemd`, `bond0`.
 До их добавления искать команды
 в самих документах по `INDEX.md`.
