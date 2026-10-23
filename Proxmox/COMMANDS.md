@@ -1356,6 +1356,241 @@ ip addr show bond0
 cat /proc/net/bonding/bond0
 ```
 
+## 17. Первичная настройка узла: имя и репозитории
+
+Процедуры выполняются на свежем узле до вступления в кластер. Переименование узла, уже входящего
+в кластер, требует правки `corosync.conf` при остановленном кластере: в `PROXMOX-NODE-RENAME-2026-001`
+этот порядок не описан, сверяться с документацией Proxmox «Renaming a Node». Диалоги скрипта
+пост-установки (whiptail) — не команды, рекомендованные ответы — в `PROXMOX-POSTINSTALL-SCRIPT-2026-001`.
+
+```bash
+# [R] Состоит ли узел в кластере — PROXMOX-NODE-RENAME-2026-001
+# Переименование по этой процедуре применимо только к узлу вне активного кластера
+pvecm status
+```
+
+```bash
+# [W] Сменить имя узла до вступления в кластер (по порядку) — PROXMOX-NODE-RENAME-2026-001
+# В окне обслуживания: перезагрузка остановит работающие ВМ. Не менять имя только через
+# /etc/hostname или hostnamectl без правки /etc/hosts: рассинхронизация и ошибки SSL.
+# Сначала вручную поправить /etc/hosts: строка с IP узла — сначала FQDN, затем короткое имя;
+# имя узла не должно указывать на 127.0.0.1:
+#   127.0.0.1 localhost.localdomain localhost
+#   <IP_узла> <fqdn_узла> <имя_узла>
+echo "<имя_узла>" > /etc/hostname
+reboot
+```
+
+```bash
+# [R] Каталоги конфигураций узлов после перезагрузки — PROXMOX-NODE-RENAME-2026-001
+# После смены имени список ВМ в веб-интерфейсе пуст: конфигурации лежат в каталоге со старым именем
+ls /etc/pve/nodes/
+```
+
+```bash
+# [W] Перенести конфигурации в каталог с новым именем, если каталог нового имени ещё не создан
+# PROXMOX-NODE-RENAME-2026-001
+mv /etc/pve/nodes/<старое_имя> /etc/pve/nodes/<новое_имя>
+```
+
+```bash
+# [D] REQUIRES_APPROVAL — слить каталог старого имени в уже созданный каталог нового и удалить старый (по порядку)
+# PROXMOX-NODE-RENAME-2026-001
+# Только если каталог нового имени уже существует (пустой). rm -rf безвозвратно удаляет каталог
+# конфигураций со старым именем: перед ним проверить ls, что cp -a отработал и конфигурации ВМ на месте
+cp -a /etc/pve/nodes/<старое_имя>/. /etc/pve/nodes/<новое_имя>/
+rm -rf /etc/pve/nodes/<старое_имя>
+```
+
+```bash
+# [W] Перезапустить службы после переноса конфигураций (или ещё раз reboot) — PROXMOX-NODE-RENAME-2026-001
+# Самоподписанный сертификат останется со старым именем — не критично; при необходимости
+# перегенерировать в Node → Certificates
+systemctl restart pvedaemon pveproxy pvestatd pvescheduler
+```
+
+```bash
+# [W] Обновить систему после диалогов скрипта первичной настройки (по порядку) — PROXMOX-POSTINSTALL-SCRIPT-2026-001
+# reboot перезагружает узел: окно обслуживания. После — apt update без ошибок 401/NO_PUBKEY
+apt update
+apt full-upgrade -y
+reboot
+```
+
+```bash
+# [R] Формат репозиториев на узле — PROXMOX-POSTINSTALL-SCRIPT-2026-001
+# На PVE 9 / Debian trixie репозитории хранятся в формате deb822 (.sources), не .list: команды под
+# .list завершатся ошибкой «sed: can't read ...: No such file or directory». Сначала проверять формат
+ls -l /etc/apt/sources.list.d/
+```
+
+```bash
+# [W] Отключить enterprise-репозитории в формате deb822 (.sources) — PROXMOX-POSTINSTALL-SCRIPT-2026-001
+# Если строка Enabled: есть — заменяется на «Enabled: no», если нет — добавляется в начало файла.
+# Цикл трогает и ceph.sources: если этот файл уже заменён на репозиторий Ceph no-subscription
+# (раздел 4), цикл отключит рабочий репозиторий — замечание не из источника
+for f in /etc/apt/sources.list.d/pve-enterprise.sources /etc/apt/sources.list.d/ceph.sources; do
+  [ -f "$f" ] && { grep -q '^Enabled:' "$f" && sed -i 's/^Enabled:.*/Enabled: no/' "$f" || sed -i '1i Enabled: no' "$f"; }
+done
+```
+
+```bash
+# [W] Отключить enterprise-репозиторий в старом формате .list — PROXMOX-POSTINSTALL-SCRIPT-2026-001
+# Только если репозитории действительно в формате .list (проверка выше)
+sed -i 's/^deb/#deb/' /etc/apt/sources.list.d/pve-enterprise.list
+```
+
+```bash
+# [R] Включён ли no-subscription — PROXMOX-POSTINSTALL-SCRIPT-2026-001
+grep -ri 'no-subscription' /etc/apt/sources.list.d/
+```
+
+```bash
+# [R] Диагностика ошибок apt update (код 100) — PROXMOX-POSTINSTALL-SCRIPT-2026-001
+# Could not get lock / Waiting for cache lock: фоновый apt-daily ещё работает, обычно освобождается
+# за 1–10 минут. Не убивать процесс и не удалять lock-файлы. Temporary failure resolving — сеть или DNS
+ps -p <pid> -o pid,etime,cmd
+ping -c3 download.proxmox.com
+cat /etc/resolv.conf
+```
+
+```bash
+# [W] NO_PUBKEY: добавить ключ Proxmox — PROXMOX-POSTINSTALL-SCRIPT-2026-001
+# <кодовое_имя> — bookworm или trixie по версии Debian узла (cat /etc/os-release).
+# Скачивать только с официального домена proxmox.com
+wget https://enterprise.proxmox.com/debian/proxmox-release-<кодовое_имя>.gpg -O /etc/apt/trusted.gpg.d/proxmox-release-<кодовое_имя>.gpg
+```
+
+```bash
+# [R] Corosync на одиночном узле — PROXMOX-POSTINSTALL-SCRIPT-2026-001
+# Состояние зависит от ответа в диалоге скрипта: отключён, если выбрано «yes» на шаге про Corosync
+systemctl status corosync
+```
+
+## 18. Миграция ВМ между узлами (план)
+
+План на момент `PROXMOX-VM-MIGRATION-ISOLATION-2026-001` не выполнялся: миграция не начата, причина
+жалоб на скорость 1С по замерам не установлена. Блоки [R] — проверки до миграции. ВМ 1С ERP на другой
+узел без явного запроса администратора не переносить.
+
+```bash
+# [R] Память узла — PROXMOX-VM-MIGRATION-ISOLATION-2026-001
+# Выполнять на каждом узле отдельно и подписывать вывод узлом: во вставках из источника подписи
+# были перепутаны
+free -h
+```
+
+```bash
+# [R] Список ВМ и их ресурсы (vCPU, RAM, диски) — PROXMOX-VM-MIGRATION-ISOLATION-2026-001
+qm list
+qm config <VMID>
+```
+
+```bash
+# [R] Процессор и NUMA на узле — PROXMOX-VM-MIGRATION-ISOLATION-2026-001
+# Сравнить сумму vCPU всех запущенных ВМ с числом потоков хоста
+lscpu
+numactl -H
+```
+
+```bash
+# [R] Ресурсы HA, которых затронет перенос — PROXMOX-VM-MIGRATION-ISOLATION-2026-001
+ha-manager status
+```
+
+```bash
+# [R] Канал под public_network Ceph (vmbr0) — PROXMOX-VM-MIGRATION-ISOLATION-2026-001
+# ВМ на втором узле обращаются к OSD на первом по этой сети. Скорость моста по ethtool линком не
+# является: смотреть физический порт
+ip -br link
+ethtool <интерфейс> | grep -i speed
+```
+
+```bash
+# [R] Замеры во время жалобы на скорость — PROXMOX-VM-MIGRATION-ISOLATION-2026-001
+# Без замеров во время жалоб причина не считается установленной. ceph osd perf выполнять несколько раз
+# подряд. Внутри ВМ 1С: очереди дисков и CPU, активные запросы SQL (команды в источнике не приведены)
+top
+mpstat
+ceph -s
+ceph osd perf
+```
+
+```bash
+# [R] Свободное место в пулах Ceph перед миграцией — PROXMOX-VM-MIGRATION-ISOLATION-2026-001
+ceph df
+```
+
+```bash
+# [W] Мигрировать ВМ на другой узел — PROXMOX-VM-MIGRATION-ISOLATION-2026-001
+# Только после проверок выше и решения по замерам: по одной ВМ, в нерабочее время, начиная с наименее
+# критичной. Не выполнять при нехватке места в пуле Ceph и RAM на целевом узле, а также для ВМ с
+# локальным хранилищем (local, local-lvm): сначала перенести диски на Ceph. Для ВМ на общем
+# хранилище переносится только состояние памяти
+qm migrate <VMID> <целевой_узел>
+```
+
+```bash
+# [W] Увеличить osd_memory_target для NVMe-OSD — PROXMOX-VM-MIGRATION-ISOLATION-2026-001
+# Предложение из документа, не выполнялось; польза не подтверждена (INFERRED: ceph osd perf на
+# простое показал 0 мс, замеров под нагрузкой нет). По умолчанию 4 ГБ (4294967296), здесь 8 ГБ на
+# демон — выполнять только осознанно
+ceph config set osd.<N> osd_memory_target 8589934592
+```
+
+## 19. Ceph: инициализация и общие проверки
+
+Из `PROXMOX-CEPH-ARCHITECTURE-PLANNING-2026-001`: документ плановый, а не протокол выполненных
+команд, порядок действий в нём — обобщённая шпаргалка. Установка пакетов Ceph, MON/MGR, OSD и
+RBD-хранилище в источнике делаются через веб-интерфейс (Node → Ceph, Datacenter → Storage → Add → RBD).
+
+```bash
+# [R] Какая сеть реально используется кластером — PROXMOX-CEPH-ARCHITECTURE-PLANNING-2026-001
+# Смотреть строки ring0_addr
+cat /etc/pve/corosync.conf
+```
+
+```bash
+# [W] Инициализировать Ceph с указанием сети — PROXMOX-CEPH-ARCHITECTURE-PLANNING-2026-001
+# Команда из плановой шпаргалки: public и cluster network — внутренняя 10G подсеть. Фактический порядок
+# развёртывания в этом кластере — в PROXMOX-CEPH-OSD-POOLS-DEPLOYMENT-2026-001, а cluster_network
+# позже переносился на прямой канал (PROXMOX-CEPH-NIC0-DIRECT-LINK-2026-001)
+pveceph init --network <подсеть/маска>
+```
+
+```bash
+# [R] Общие проверки Ceph после развёртывания — PROXMOX-CEPH-ARCHITECTURE-PLANNING-2026-001
+# Ожидается: HEALTH_OK, все OSD up/in
+ceph -s
+ceph osd tree
+ceph df
+pveceph status
+```
+
+## 20. HA: watchdog (fencing)
+
+Fencing в Proxmox VE работает через watchdog (`PROXMOX-WEBGUI-DATACENTER-2026-001`). Команды
+`ha-manager groupadd ... --group` и `ha-manager add ... --group` из того же документа в справочник не
+вошли: документ написан для Proxmox VE 8.2.2, а в PVE 9 группы HA заменены правилами (по сообщениям
+сотрудников Proxmox на форуме, с документацией версии не сверялось) — настраивать HA через веб-интерфейс
+или `ha-manager rules` после сверки с документацией своей версии. Команды `pvesdn create ...` не вошли:
+в обсуждениях SDN из командной строки настраивают через `pvesh create cluster/sdn/...` и применяют
+`pvesh set cluster/sdn`; ни один из вариантов на этом кластере не проверялся.
+
+```bash
+# [R] Есть ли watchdog — PROXMOX-WEBGUI-DATACENTER-2026-001
+# Пример вывода для аппаратного watchdog в источнике: Device /dev/watchdog, Identity iTCO_wdt,
+# Timeout 10 seconds
+wdctl
+```
+
+```bash
+# [W] Загрузить аппаратный watchdog, если не настроен — PROXMOX-WEBGUI-DATACENTER-2026-001
+# Программный fallback — softdog, для production рекомендуется аппаратный. Чтобы модуль загружался после
+# перезагрузки, добавить его имя в /etc/modules (команда в источнике не приведена)
+modprobe iTCO_wdt
+```
+
 ---
 
 ## Покрытие
@@ -1389,17 +1624,20 @@ cat /proc/net/bonding/bond0
 - `LINUX-SSH-DEBIAN-ACCESS-2026-001`
 - `LINUX-SSH-PAM-SYSTEMD-ZABBIX-2026-001`
 - `NETWORK-BOND0-CEPH-ACTIVEBACKUP-2026-001`
+- `PROXMOX-NODE-RENAME-2026-001`
+- `PROXMOX-POSTINSTALL-SCRIPT-2026-001`
+- `PROXMOX-VM-MIGRATION-ISOLATION-2026-001`
+- `PROXMOX-CEPH-ARCHITECTURE-PLANNING-2026-001`
+- `PROXMOX-WEBGUI-DATACENTER-2026-001`
 
 Команды `pvesh get /cluster/resources` и `qm guest cmd <VMID> get-host-name`
 проверены администратором 2026-10-20 (отдельного документа-источника нет).
 
-**Ещё не просмотрены на наличие команд** (будут разобраны следующими правками):
-`PROXMOX-NODE-RENAME-2026-001`, `PROXMOX-POSTINSTALL-SCRIPT-2026-001`,
-`PROXMOX-VM-MIGRATION-ISOLATION-2026-001` и справочные документы
-(`HARDWARE-HUAWEI-2288H-PORTMAP-2026-001`, `PROXMOX-NETWORK-TOPOLOGY-2026-001`,
-`NETWORK-SWITCH-SELECTION-2026-001`, `PROXMOX-WEBGUI-DATACENTER-2026-001`,
-`PROXMOX-CEPH-ARCHITECTURE-PLANNING-2026-001`, `PROXMOX-CEPH-CONCEPTS-2NODE-2026-001`).
-До их разбора искать команды в самих документах по `INDEX.md`.
+**Просмотрены, команд для переноса нет** (справочные документы):
+`PROXMOX-CEPH-CONCEPTS-2NODE-2026-001`, `HARDWARE-HUAWEI-2288H-PORTMAP-2026-001`,
+`PROXMOX-NETWORK-TOPOLOGY-2026-001`, `NETWORK-SWITCH-SELECTION-2026-001`.
+
+**Не разбирались:** архивные документы (`ARCHIVE-*`).
 
 ## Как дополнять
 
