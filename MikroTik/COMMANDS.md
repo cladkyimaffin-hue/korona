@@ -264,6 +264,228 @@ New-NetFirewallRule -DisplayName "<Сервис> from <Источник>" -Direc
 /interface sstp-server server set pfs=yes tls-version=only-1.2;only-1.3
 ```
 
+## 5. Wi-Fi на точках доступа cAP ac (RouterOS 7, пакет wifi-qcom-ac)
+
+Все блоки раздела выполняются **на точке доступа**, а не на основном маршрутизаторе.
+На точках cAP ac пакет `wifi-qcom-ac` означает стек `/interface wifi`: команды
+`/interface wireless` и `/caps-man` на нём дают `bad command name`.
+
+Ограничения из источников:
+
+- **Не задавать явно `channel.band`** (`2ghz-n`, `5ghz-ac`, `2ghz-only` и т. п.) на устройствах
+  с `wifi-qcom-ac`: `2ghz-only` даёт `syntax error`, а `2ghz-n` и `5ghz-ac` на обоих
+  интерфейсах привели к потере флага `R` и трафику 0 bps (`MIKROTIK-WIFI-SSID-2026-001`).
+  `channel.frequency=2412-2472` тоже пробовали: применилось, но флаг `R` не появился.
+- Команды `add` неидемпотентны: повторный запуск создаёт дубликаты профилей, интерфейсов и
+  портов моста. Перед созданием проверить, что объектов с такими именами нет.
+- После сброса к заводским настройкам радиоинтерфейсы называются `wifi1` (2,4 ГГц) и `wifi2`
+  (5 ГГц). Имена `wifi-2` и `wifi-5` появляются только после переименования администратором
+  (команда переименования в источнике не приведена); до него обращение по ним даёт `no such item`.
+- Дополнительный SSID (раздел 5.2) в источнике делали виртуальными интерфейсами на мастерах.
+  Для основного SSID, дублированного виртуальными интерфейсами, подход признан лишним: использовать
+  мастер-интерфейсы напрямую (раздел 5.3). Расхождение подходов в источниках не разрешено.
+
+### 5.1 Диагностика
+
+```routeros
+# [R] Модель, версия RouterOS, Wi-Fi-стек и привязка к мосту — MIKROTIK-WIFI-SSID-RSK-2026-001
+# Ожидается на cAP ac: пакет wifi-qcom-ac. Флаг I у порта в bridge означает inactive;
+# его причина в источнике отдельно не проверялась
+/system resource print
+/system package print where name~"wifi|wireless"
+/interface wifi print
+/interface bridge port print where interface~"wifi"
+```
+
+### 5.2 Дополнительный SSID виртуальными интерфейсами
+
+```routeros
+# [W] Добавить дополнительный SSID на оба диапазона — MIKROTIK-WIFI-SSID-RSK-2026-001
+# По порядку. Перед выполнением проверить, что объектов с такими именами ещё нет (блок 5.1).
+# Подставить реальную парольную фразу: значение «****» из источника — плейсхолдер, а не пароль.
+# Мост — тот же, что у основных Wi-Fi-интерфейсов (в источнике bridge1)
+/interface wifi security add name=sec-<метка> authentication-types=wpa2-psk,wpa3-psk passphrase="<парольная_фраза>"
+/interface wifi configuration add name=conf-<метка> ssid=<SSID> security=sec-<метка>
+/interface wifi add name=wifi-2-<метка> master-interface=<мастер_2ГГц> configuration=conf-<метка> disabled=no
+/interface wifi add name=wifi-5-<метка> master-interface=<мастер_5ГГц> configuration=conf-<метка> disabled=no
+/interface bridge port add bridge=<мост> interface=wifi-2-<метка>
+/interface bridge port add bridge=<мост> interface=wifi-5-<метка>
+```
+
+```routeros
+# [R] Проверка дополнительного SSID — MIKROTIK-WIFI-SSID-RSK-2026-001
+# В источнике у виртуального интерфейса 5 ГГц был флаг B без R, и позднее RUNNING не подтверждён:
+# успешное подключение клиента не доказывает, что работают оба диапазона. Пустой вывод leases
+# на точке доступа сам по себе неисправность не доказывает (DHCP-сервер мог быть на другом устройстве)
+/interface wifi print where name~"<метка>"
+/interface bridge port print where interface~"<метка>"
+/log print where topics~"wifi" limit=50
+/ip dhcp-server lease print where active=yes
+```
+
+```routeros
+# [W] Сменить парольную фразу SSID — MIKROTIK-WIFI-SSID-RSK-2026-001
+# В источнике после замены пароля с символом # на пароль без него всё заработало. Объяснение
+# «# в терминале воспринят как комментарий» не подтверждено ни логами, ни проверкой сохранённого
+# значения: причину сбоя не считать доказанной
+/interface wifi security set sec-<метка> passphrase="<парольная_фраза>"
+```
+
+### 5.3 Основной SSID на мастер-интерфейсах (после сброса точки)
+
+```routeros
+# [W] Применить профиль к мастер-интерфейсам и задать мост — MIKROTIK-WIFI-SSID-2026-001
+# По порядку, на точке после сброса (профили sec-<метка> и conf-<метка> созданы, парольная фраза
+# в репозитории не хранится). Страна в профиле обязательна для wifi в ROS 7 (в источнике — Russia).
+# channel.band не задавать. Результат в источнике: клиент подключился на 2,4 ГГц;
+# на 5 ГГц и состояние портов в мосту после этих команд не проверялись
+/interface wifi configuration set conf-<метка> country=<страна>
+/interface wifi set <мастер_2ГГц> configuration=conf-<метка>
+/interface wifi set <мастер_5ГГц> configuration=conf-<метка>
+/interface wifi set <мастер_2ГГц> datapath.bridge=<мост>
+/interface wifi set <мастер_5ГГц> datapath.bridge=<мост>
+```
+
+```routeros
+# [R] Проверка работы точки — MIKROTIK-WIFI-SSID-2026-001
+# Ожидается: у обоих мастеров флаг R, status: running, порты в мосту не I/X, при подключённом клиенте
+# registered-peers меняется с 0 на 1 и растут счётчики. Флаг R в простое нестабилен: по наблюдению
+# администратора он появляется в момент подключения клиента (выводом не подтверждено).
+# Без R клиенты точку могут не увидеть; 0 bps без клиентов при наличии R проблемой не считается
+/interface wifi print detail where name="<мастер_2ГГц>" or name="<мастер_5ГГц>"
+/interface wifi monitor <мастер_2ГГц> once
+/interface wifi monitor <мастер_5ГГц> once
+/interface bridge port print where interface~"wifi"
+/interface wifi registration-table print
+/log print
+```
+
+```routeros
+# [W] Вернуть управление диапазоном драйверу после ошибочного channel.band — MIKROTIK-WIFI-SSID-2026-001
+# Результат отката в источнике не подтверждён выводом команд
+/interface wifi set <мастер_2ГГц> channel.band=""
+/interface wifi set <мастер_5ГГц> channel.band=""
+```
+
+```routeros
+# [D] REQUIRES_APPROVAL — удалить дублирующие виртуальные интерфейсы и «призрачные» порты в мосту
+# MIKROTIK-WIFI-SSID-2026-001
+# Призрачный порт — запись в мосту для уже несуществующего интерфейса (в источнике идентификаторы
+# вида *9, *A): идентификатор брать из свежего /interface bridge port print.
+# Пересоздание порта (remove + add) статус INACTIVE не исправило
+/interface bridge port remove [find where interface="<идентификатор_призрака>"]
+/interface bridge port remove [find interface=<виртуальный_интерфейс> bridge=<мост>]
+/interface wifi remove <виртуальный_интерфейс>
+```
+
+```routeros
+# [W] Откат мастеров к исходным конфигурациям — MIKROTIK-WIFI-SSID-2026-001
+# В источнике это были исходные (нерабочие) конфигурации cfg_2 и cfg_5: откат на крайний случай
+/interface wifi set <мастер_2ГГц> configuration=<исходная_конфигурация_2ГГц>
+/interface wifi set <мастер_5ГГц> configuration=<исходная_конфигурация_5ГГц>
+```
+
+```routeros
+# [W] Перезагрузка точки — MIKROTIK-WIFI-SSID-2026-001
+# Крайний вариант, если проблема вернулась после просмотра /log print. Клиенты на точке
+# будут отключены
+/system reboot
+```
+
+## 6. WireGuard: сервер на основном маршрутизаторе
+
+Параметры (интерфейс сервера, порт, подсеть туннеля, публичный адрес, DNS для клиентов) и список
+пиров — в `VPN-MIKROTIK-WIREGUARD-SERVER-2026-001`. Публичные ключи пиров здесь не повторяются.
+Приватный ключ клиента остаётся на устройстве клиента: не вставлять его в чат и в репозиторий.
+
+### 6.1 Правила Firewall и NAT
+
+```routeros
+# [W] Правила Firewall и NAT для WireGuard-сервера — VPN-MIKROTIK-WIREGUARD-SERVER-2026-001
+# Порядок решает: правило Allow WireGuard в input должно стоять ДО правил drop по in-interface WAN,
+# иначе handshake не проходит (rx=0, TS-MIKROTIK-WIREGUARD-ACCESS-2026-001). Номер правила
+# <номер_первого_drop_правила> брать из свежего /ip firewall filter print.
+# port=<порт> в источнике — так работало; port в RouterOS совпадает и по порту источника, и по
+# порту назначения, вариант с dst-port в документах не проверялся.
+# Для forward в интернет place-before=0 ставит правило первым в цепочке
+/ip firewall filter add chain=input action=accept protocol=udp in-interface=<WAN-интерфейс> port=<порт_WG> place-before=<номер_первого_drop_правила> comment="Allow WireGuard"
+/ip firewall filter add chain=input action=accept in-interface=<wg-интерфейс> comment="Allow WireGuard to Router"
+/ip firewall filter add chain=forward action=accept in-interface=<wg-интерфейс> out-interface=<LAN-мост> comment="Allow WireGuard to LAN"
+/ip firewall filter add chain=forward action=accept in-interface=<wg-интерфейс> out-interface=<WAN-интерфейс> place-before=0 comment="Allow WireGuard to Internet"
+/ip firewall nat add chain=srcnat action=masquerade src-address=<подсеть_WG> out-interface=<WAN-интерфейс> comment="WireGuard NAT"
+```
+
+### 6.2 Добавление пользователя
+
+```text
+# [W] Шаг 1 — ключи на клиенте — VPN-MIKROTIK-WIREGUARD-ADD-USER-2026-001
+# В приложении WireGuard: Add empty tunnel, скопировать PublicKey. Приватный ключ остаётся у клиента
+```
+
+```routeros
+# [R] Занятые адреса пиров перед выбором адреса клиента
+# Стандартный просмотр; в источнике дословно не приведён (там список пиров дан таблицей в документе сервера)
+/interface wireguard peers print
+```
+
+```routeros
+# [W] Шаг 2 — добавить пир на роутере — VPN-MIKROTIK-WIREGUARD-ADD-USER-2026-001
+# allowed-address — свободный адрес /32 из подсети туннеля
+/interface wireguard peers add \
+  interface=<wg-интерфейс> \
+  public-key=<PUBLIC_KEY_клиента> \
+  allowed-address=<IP_клиента>/32 \
+  comment=<Имя_пользователя>
+```
+
+```ini
+# [W] Шаг 3 — конфигурация на клиенте (на устройстве клиента, не на роутере)
+# VPN-MIKROTIK-WIREGUARD-ADD-USER-2026-001
+# AllowedIPs = 0.0.0.0/0 пускает весь трафик клиента через туннель: поэтому нужны правило forward
+# в интернет и DNS из внутренней сети (раздел 6.3)
+[Interface]
+PrivateKey = <PRIVATE_KEY_клиента>
+Address = <IP_клиента>/32
+DNS = <внутренний_DNS>
+
+[Peer]
+PublicKey = <публичный_ключ_сервера>
+AllowedIPs = 0.0.0.0/0
+Endpoint = <публичный_IP>:<порт_WG>
+PersistentKeepalive = 25
+```
+
+### 6.3 Диагностика
+
+```routeros
+# [W] Handshake есть, интернета нет — TS-MIKROTIK-WIREGUARD-ACCESS-2026-001
+# Причина в источнике: неверный DNS на клиенте (нужен внутренний DNS, см. шаг 3 выше) и нет правила
+# forward в WAN. Это то же правило, что в разделе 6.1: добавлять, только если его там нет
+/ip firewall filter add chain=forward action=accept in-interface=<wg-интерфейс> out-interface=<WAN-интерфейс> place-before=0 comment="Allow WireGuard to Internet"
+```
+
+```routeros
+# [W] Локальные сервисы не пингуются — TS-MIKROTIK-WIREGUARD-ACCESS-2026-001
+# Причина в источнике: firewall блокирует input из WireGuard-интерфейса.
+# То же правило, что в разделе 6.1: добавлять, только если его там нет
+/ip firewall filter add chain=input action=accept in-interface=<wg-интерфейс> comment="Allow WireGuard to Router"
+```
+
+```text
+# [R] Handshake не проходит (rx=0) — причина А — TS-MIKROTIK-WIREGUARD-ACCESS-2026-001
+# Конфликт с Clash (FlClashX) на клиенте. Решение: закрыть Clash. Причина Б (порядок правил
+# firewall на роутере) — блок ниже
+```
+
+```routeros
+# [D] REQUIRES_APPROVAL — пересоздать Allow WireGuard перед правилами drop (причина Б)
+# TS-MIKROTIK-WIREGUARD-ACCESS-2026-001
+# Правило Allow WireGuard стояло ПОСЛЕ drop in-interface=<WAN-интерфейс>. Решение: удалить и добавить
+# перед первым drop. Пока правило удалено, WireGuard с WAN не принимается: выполнять обе строки подряд
+/ip firewall filter remove [find comment="Allow WireGuard"]
+/ip firewall filter add chain=input action=accept protocol=udp in-interface=<WAN-интерфейс> port=<порт_WG> place-before=<номер_первого_drop_правила> comment="Allow WireGuard"
+```
+
 ---
 
 ## Покрытие
@@ -275,11 +497,18 @@ New-NetFirewallRule -DisplayName "<Сервис> from <Источник>" -Direc
 - `NETWORK-MIKROTIK-REMOTE-ACCESS-PROCEDURE-2026-001`
 - `NETWORK-MIKROTIK-VPN-PROFILE-BROKEN-2026-001`
 - `MikroTik-CRITICAL-SECURITY-PLAN-2026-001`
+- `MIKROTIK-WIFI-SSID-RSK-2026-001`
+- `MIKROTIK-WIFI-SSID-2026-001`
+- `VPN-MIKROTIK-WIREGUARD-SERVER-2026-001`
+- `VPN-MIKROTIK-WIREGUARD-ADD-USER-2026-001`
+- `TS-MIKROTIK-WIREGUARD-ACCESS-2026-001`
 - `MikroTik/START-HERE.md` (базовый набор диагностики)
 
-**Ещё не разобраны** (команд пока нет в этом файле): `MIKROTIK-WIFI-SSID-RSK-2026-001`,
-`MIKROTIK-WIFI-SSID-2026-001`, `VPN-MIKROTIK-WIREGUARD-SERVER-2026-001`,
-`VPN-MIKROTIK-WIREGUARD-ADD-USER-2026-001`, `TS-MIKROTIK-WIREGUARD-ACCESS-2026-001`.
+**Не вошло из разобранных документов:** блок для SSID Korona.ru на точке Т2 (в источнике предложен,
+выполнение не подтверждено; при необходимости собирается по шаблону раздела 5.2), команда
+переименования `wifi1`/`wifi2` (в источнике не приведена), `channel.frequency=2412-2472`
+(применилось, но флаг `R` не появился), список пиров и публичные ключи WireGuard (остаются в
+документе сервера).
 
 **Не разбирались:** `INBOX-MIKROTIK-WIREGUARD-RAW-2026-001` (сырой материал, источник для
 `VPN-MIKROTIK-WIREGUARD-*`; команды брать из обработанных документов), каталог `99_Archive/`,
