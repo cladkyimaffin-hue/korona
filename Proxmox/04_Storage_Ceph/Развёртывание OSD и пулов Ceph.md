@@ -5,7 +5,7 @@ document_type: setup
 status: completed
 priority: critical
 date_created: 2026-09-03
-date_modified: '2026-09-29'
+date_modified: '2026-10-24'
 next_review: 2026-12-01
 author: cladkyimaffin-hue
 category: 04_Storage_Ceph
@@ -140,6 +140,14 @@ osd: 4 osds: 4 up, 4 in
 pools: .mgr (1, size 2/min 1), ceph-fast (2, size 2/min 1), ceph-bulk (3, size 2/min 1)
 pgs: 256 active+clean
 ```
+
+⚠️ Значение `pgs: 256` — снимок сразу после развёртывания (2026-09-03).
+Актуально на 2026-10-24 (`ceph -s` и `ceph osd pool ls detail` на pve01): 65 PG
+`active+clean` = `.mgr` 1 + `ceph-fast` 32 + `ceph-bulk` 32; у всех трёх пулов
+`autoscale_mode on`, `size 2`, `min_size 1`. Уменьшение вероятно вызвано PG
+Autoscaler (INFERRED: момент пересчёта и исходное распределение 256 PG по пулам
+в документах не зафиксированы).
+
 - [x] Оба RBD-хранилища (`ceph-fast`, `ceph-bulk`) добавлены в Proxmox на уровне Datacenter (Content: Disk image, Container).
 - [x] QDevice подключён, кворум стабилен.
 
