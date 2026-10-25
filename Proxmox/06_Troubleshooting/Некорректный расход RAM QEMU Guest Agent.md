@@ -6,7 +6,7 @@ document_type: troubleshooting
 status: completed
 priority: medium
 date_created: 2026-09-02
-date_modified: '2026-09-29'
+date_modified: '2026-10-25'
 next_review: 2026-12-01
 author: cladkyimaffin-hue
 category: 06_Troubleshooting
@@ -35,6 +35,7 @@ dont_repeat:
   (использовать `qm guest cmd ... get-osinfo`).
 related_files:
 - PROXMOX-VM-CLONE-2001-2026-001
+- PROXMOX-VM2002-AD-RAM-INCREASE-2026-001
 schema_version: '1.0'
 ---
 
@@ -149,6 +150,7 @@ QEMU Guest Agent был установлен и подтверждённо ра�
 - Нужно ли оставлять ISO virtio-win подключённым после установки компонентов?
 
 ## Связанные документы
+- `PROXMOX-VM2002-AD-RAM-INCREASE-2026-001` — продолжение по той же ВМ 2002: значение `memory: 4096` в этом документе историческое, с 2026-10-25 в конфигурации `memory: 8192`, `balloon: 8192`.
 - «Клонирование шаблона ВМ 2001 (win-1c-app-01).md» — та же категория конфигурации Windows Server на этой инфраструктуре (ещё не мигрирован)
 
 ---
