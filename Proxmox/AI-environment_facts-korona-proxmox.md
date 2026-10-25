@@ -1,7 +1,7 @@
 ---
 schema_version: "1.0"
 status: "active"
-date_modified: 2026-10-20
+date_modified: 2026-10-25
 maintainer: "cladkyimaffin-hue"
 file_type: "environment_facts"
 source_commit: "0230c2500f92a066444d4135d3346725ab5f01cb"
@@ -67,6 +67,12 @@ confidence: "Факты сверены с текущими документам�
 - CPU: **20 vCPU** (1 socket × 20 cores; VERIFIED: `qm config 2001`, 2026-10-18). При клонировании выставляли 24 vCPU, позже значение изменено на 20, причина изменения не задокументирована. `numa: 0`, тип процессора `x86-64-v2-AES`.
 - `qm resize` не принимает `--storage`.
 
+### VM 2002
+
+- Имя в Proxmox: **`AD`** (`AD.krnn.ru`, третий контроллер домена, см. раздел «Active Directory»). Windows Server 2025. Узел `pve01`, состояние `running` (VERIFIED: `pvesh get /cluster/resources --type vm`, 2026-10-25).
+- RAM: **`8192 MiB`**, `balloon: 8192` (VERIFIED: `qm config 2002`, 2026-10-25). Ранее было `memory: 4096`, `balloon: 1024`. Что работающий процесс QEMU получил новые значения после полной остановки и запуска, подтверждено только словами администратора — вывода `info balloon` (`max_mem`) после запуска нет. Подробности — `PROXMOX-VM2002-AD-RAM-INCREASE-2026-001`.
+- CPU: 2 vCPU (1 socket × 2 cores), `x86-64-v2-AES`. `numa: 0`, параметр `hotplug` не задан. Диск `scsi0` 100 ГБ на `ceph-fast`. q35, OVMF/UEFI, TPM 2.0 (VERIFIED: `qm config 2002`, 2026-10-25). Параметры автозапуска — в разделе «Автозапуск ВМ и LXC (pve01)».
+
 ### VM 2003
 
 - `TC.KRNN.RU`, терминальный сервер RDS.
@@ -115,6 +121,7 @@ confidence: "Факты сверены с текущими документам�
 - Не удалять Recovery-раздел Windows без `Get-Disk`/`Get-Partition`, резервной копии и подтверждения.
 - Не выполнять destructive-команды Ceph (`wipefs`, `sgdisk`, создание OSD) без проверки диска.
 - Перед операцией с VM/CT проверять текущие `qm config`, `qm status`, `pct config`, `pct list`.
+- Новое значение `memory` работающая ВМ получает только после полной остановки и запуска, не после перезагрузки из гостя; проверять `max_mem` в `info balloon`. Hotplug памяти требует `numa: 1` (`PROXMOX-VM2002-AD-RAM-INCREASE-2026-001`).
 - Исторические команды и имена файлов из старых миграций не считать актуальными путями: актуальный список находится в `00_Meta/registry.csv`.
 - **Не использовать `bond0` (10.10.10.0/24) для трафика Ceph.** Активная и единственная кластерная сеть — `nic0` (10.10.11.0/24) с MTU 9000. Изменение этого параметра без явного запроса и аудита запрещено.
 - При настройке или проверке сетей Ceph всегда сверять `/etc/ceph/ceph.conf` и вывод `ceph config dump`, так как локальный конфиг имеет приоритет при инициализации демонов OSD.
@@ -133,6 +140,7 @@ confidence: "Факты сверены с текущими документам�
 `PROXMOX-AUTOSTART-STARTUP-ORDER-2026-001` (автозапуск и порядок старта ВМ и LXC на pve01),
 `PROXMOX-NETWORK-TOPOLOGY-2026-001` (физическая схема сети pve01/pve02),
 `PROXMOX-CEPH-PUBLIC-NETWORK-1C-2026-001` (тормоза 1С и public_network),
+`PROXMOX-VM2002-AD-RAM-INCREASE-2026-001` (оповещение о памяти ВМ 2002 AD и увеличение RAM до 8 ГБ),
 `ZABBIX-STACK-INSTALL-2026-001`,
 `ZABBIX-PVE-API-MONITORING-2026-001`,
 `ZABBIX-LXC-FALSE-ALERTS-2026-001` (ложные алерты Zabbix на LXC 700; расхождения по IP и узлу размещения закрыты — см. `00_Meta/CONFLICTS.md`),

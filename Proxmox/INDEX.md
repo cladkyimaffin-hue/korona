@@ -1,6 +1,6 @@
 ---
 schema_version: "1.0"
-date_modified: 2026-10-22
+date_modified: 2026-10-25
 status: "active"
 maintainer: "cladkyimaffin-hue"
 file_type: "navigation_index"
@@ -93,6 +93,7 @@ source_of_truth: "00_Meta/registry.csv"
 | `PROXMOX-VM-MEMORY-BALLOON-2026-001` | [Некорректное отображение расхода RAM в Proxmox при использовании QEMU Guest Agent](./06_Troubleshooting/%D0%9D%D0%B5%D0%BA%D0%BE%D1%80%D1%80%D0%B5%D0%BA%D1%82%D0%BD%D1%8B%D0%B9%20%D1%80%D0%B0%D1%81%D1%85%D0%BE%D0%B4%20RAM%20QEMU%20Guest%20Agent.md) | `troubleshooting` | `completed` | `medium` | `ProxmoxVE`, `QEMUGuestAgent`, `VirtIO`, `BalloonService`, `WindowsServer2025`, `Diagnostics` |
 | `PROXMOX-CEPH-BOND0-LATENCY-INVESTIGATION-2026-001` | [Исследование задержек записи Ceph через bond0 (165-204 мс) — НЕ ЗАВЕРШЕНО, реальная диагностика не начата](./06_Troubleshooting/%D0%A0%D0%B0%D1%81%D1%81%D0%BB%D0%B5%D0%B4%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5%20%D0%B7%D0%B0%D0%B4%D0%B5%D1%80%D0%B6%D0%B5%D0%BA%20%D0%B7%D0%B0%D0%BF%D0%B8%D1%81%D0%B8%20Ceph.md) | `troubleshooting` | `in_progress` | `high` | `ProxmoxVE`, `Ceph`, `Networking`, `bond0`, `pve01`, `pve02`, `Troubleshooting` |
 | `PROXMOX-CEPH-PUBLIC-NETWORK-1C-2026-001` | [Тормоза 1С (ВМ 2001 Srv1c): public_network и линк pve02 — ЧАСТИЧНО ПРОВЕРЕНО](./06_Troubleshooting/1c-slow-public-network-2026-10-15.md) | `troubleshooting` | `in_progress` | `high` | `ProxmoxVE`, `Ceph`, `OSD`, `Networking`, `Troubleshooting`, `Diagnostics`, `1C`, `pve01`, `pve02` |
+| `PROXMOX-VM2002-AD-RAM-INCREASE-2026-001` | [Нехватка RAM на ВМ 2002 AD и увеличение до 8 ГБ](./06_Troubleshooting/%D0%9D%D0%B5%D1%85%D0%B2%D0%B0%D1%82%D0%BA%D0%B0%20RAM%20%D0%BD%D0%B0%20%D0%92%D0%9C%202002%20AD%20%D0%B8%20%D1%83%D0%B2%D0%B5%D0%BB%D0%B8%D1%87%D0%B5%D0%BD%D0%B8%D0%B5%20%D0%B4%D0%BE%208%20%D0%93%D0%91.md) | `troubleshooting` | `completed` | `medium` | `ProxmoxVE`, `WindowsServer2025`, `ActiveDirectory`, `BalloonService`, `MemoryManagement`, `QEMUGuestAgent`, `Diagnostics`, `Troubleshooting`, `Configuration`, `pve01` |
 
 ### `07_Vaultwarden`
 
@@ -169,6 +170,7 @@ source_of_truth: "00_Meta/registry.csv"
 | Какой тип кабеля нужен для 10GBASE-SR? | LC duplex, 2 волокна, многомодовый OM3/OM4, 50/125. | [01_Hardware/Подбор коммутатора и оптики.md](./01_Hardware/%D0%9F%D0%BE%D0%B4%D0%B1%D0%BE%D1%80%20%D0%BA%D0%BE%D0%BC%D0%BC%D1%83%D1%82%D0%B0%D1%82%D0%BE%D1%80%D0%B0%20%D0%B8%20%D0%BE%D0%BF%D1%82%D0%B8%D0%BA%D0%B8.md) |
 | Зачем планируется миграция ВМ с pve01 на pve02? | Идея администратора: оставить на pve01 только ВМ 1С ERP. Причина жалоб на скорость 1С не подтверждена замерами (INFERRED), миграция не начата; вопрос закрыт администратором 2026-10-15 без зафиксированного основания. | [05_VirtualMachines/План миграции ВМ для изоляции 1С ERP.md](./05_VirtualMachines/%D0%9F%D0%BB%D0%B0%D0%BD%20%D0%BC%D0%B8%D0%B3%D1%80%D0%B0%D1%86%D0%B8%D0%B8%20%D0%92%D0%9C%20%D0%B4%D0%BB%D1%8F%20%D0%B8%D0%B7%D0%BE%D0%BB%D1%8F%D1%86%D0%B8%D0%B8%201%D0%A1%20ERP.md) |
 | Включён ли автозапуск ВМ и LXC при перезагрузке pve01 и в каком порядке они стартуют? | Да, `onboot` включён у ВМ 2001–2003 и CT 600, 700. Порядок и открытые вопросы — в документе; перезагрузкой узла не проверялось. | [05_VirtualMachines/Автозапуск и порядок старта ВМ и LXC на pve01.md](./05_VirtualMachines/%D0%90%D0%B2%D1%82%D0%BE%D0%B7%D0%B0%D0%BF%D1%83%D1%81%D0%BA%20%D0%B8%20%D0%BF%D0%BE%D1%80%D1%8F%D0%B4%D0%BE%D0%BA%20%D1%81%D1%82%D0%B0%D1%80%D1%82%D0%B0%20%D0%92%D0%9C%20%D0%B8%20LXC%20%D0%BD%D0%B0%20pve01.md) |
+| Почему в `qm config` у ВМ уже новый объём RAM, а в Windows прежний? | Перезагрузка из гостя не перезапускает процесс QEMU: новая `memory` применяется после полной остановки и запуска ВМ. Проверять `max_mem` в `info balloon`, а не только `qm config`. Hotplug памяти требует `numa: 1`. | [06_Troubleshooting/Нехватка RAM на ВМ 2002 AD и увеличение до 8 ГБ.md](./06_Troubleshooting/%D0%9D%D0%B5%D1%85%D0%B2%D0%B0%D1%82%D0%BA%D0%B0%20RAM%20%D0%BD%D0%B0%20%D0%92%D0%9C%202002%20AD%20%D0%B8%20%D1%83%D0%B2%D0%B5%D0%BB%D0%B8%D1%87%D0%B5%D0%BD%D0%B8%D0%B5%20%D0%B4%D0%BE%208%20%D0%93%D0%91.md) |
 
 ## Дерево решений
 
@@ -233,8 +235,10 @@ source_of_truth: "00_Meta/registry.csv"
   │    └─ 05_VirtualMachines/Автозапуск и порядок старта ВМ и LXC на pve01.md
   ├─ Миграция и изоляция 1С
   │    └─ 05_VirtualMachines/План миграции ВМ для изоляции 1С ERP.md
-  └─ Некорректный расход RAM, Guest Agent
-       └─ 06_Troubleshooting/Некорректный расход RAM QEMU Guest Agent.md
+  ├─ Некорректный расход RAM, Guest Agent
+  │    └─ 06_Troubleshooting/Некорректный расход RAM QEMU Guest Agent.md
+  └─ Нехватка RAM на ВМ, новая memory не применяется
+       └─ 06_Troubleshooting/Нехватка RAM на ВМ 2002 AD и увеличение до 8 ГБ.md
 ```
 
 ### 5. LXC, SSH, Vaultwarden

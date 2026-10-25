@@ -2,7 +2,7 @@
 schema_version: "1.1"
 status: "in_progress"
 date_created: 2026-10-21
-date_modified: 2026-10-22
+date_modified: 2026-10-25
 maintainer: "cladkyimaffin-hue"
 file_type: "commands_reference"
 confidence: "Команды перенесены из документов домена без изменения смысла; контекст, ожидаемый вывод и ограничения — в документе-источнике. Покрытие неполное: список источников и то, что не вошло, — в конце файла."
@@ -67,6 +67,14 @@ pct config <CTID>
 ```
 
 ```bash
+# [R] Какую память получил запущенный процесс QEMU — PROXMOX-VM2002-AD-RAM-INCREASE-2026-001
+# Интерактивно: после qm monitor <VMID> в приглашении qm> выполнить info balloon, затем quit.
+# max_mem должен совпадать с memory из qm config; если нет — ВМ не перезапускали после смены memory.
+# actual меньше max_mem означает, что балун ограничил память гостя (INFERRED). mem_swapped_in/out — счётчики гостя в байтах
+qm monitor <VMID>
+```
+
+```bash
 # [R] Связь с гостевым агентом и данные ОС гостя — PROXMOX-VM-MEMORY-BALLOON-2026-001
 # (команды qm guest info на части версий Proxmox нет — использовать qm guest cmd)
 qm guest cmd <VMID> ping
@@ -128,6 +136,18 @@ qm resize <VMID> scsi0 +<размер>G
 # [W] Память (MiB) и ядра — PROXMOX-VM-CLONE-2001-2026-001
 qm set <VMID> --memory <MiB>
 qm set <VMID> --cores <N>
+```
+
+```bash
+# [W] Применить новую память работающей ВМ (по порядку) — PROXMOX-VM2002-AD-RAM-INCREASE-2026-001
+# Перезагрузка из гостя (Windows: Пуск, Перезагрузка) процесс QEMU не перезапускает: max_mem останется прежним.
+# Hotplug памяти на ВМ с numa: 0 не включать: нужен numa: 1. Остановка контроллера домена прерывает его службы —
+# сначала убедиться, что другие DC доступны. Откат — вернуть прежние memory и balloon и снова остановить и запустить ВМ.
+# balloon равен memory — память ВМ балунингом не уменьшается (INFERRED)
+qm set <VMID> --memory <MiB> --balloon <MiB>
+qm shutdown <VMID>
+qm status <VMID>
+qm start <VMID>
 ```
 
 ```bash
@@ -1600,6 +1620,7 @@ modprobe iTCO_wdt
 - `PROXMOX-AUTOSTART-STARTUP-ORDER-2026-001`
 - `PROXMOX-VM-CLONE-2001-2026-001`
 - `PROXMOX-VM-MEMORY-BALLOON-2026-001`
+- `PROXMOX-VM2002-AD-RAM-INCREASE-2026-001`
 - `PROXMOX-CEPH-OSD-POOLS-DEPLOYMENT-2026-001`
 - `PROXMOX-CEPH-NIC0-DIRECT-LINK-2026-001`
 - `PROXMOX-CEPH-PUBLIC-NETWORK-1C-2026-001`
