@@ -5,7 +5,7 @@ document_type: reference
 status: in_progress
 priority: high
 date_created: 2026-10-15
-date_modified: 2026-10-15
+date_modified: 2026-10-26
 next_review: 2026-11-15
 author: cladkyimaffin-hue
 category: 03_Network
@@ -57,6 +57,7 @@ schema_version: "1.0"
 - `nic2` (Lom3) — `vmbr0` (public_network) `192.168.202.179/22`. VERIFIED: 1000Mb/s. SCHEMA: MAC `…38:35` (полный не указан).
 - `nic4`, `nic5` — в `bond0` (`10.10.10.2/24`), без линка, `bond0` DOWN. VERIFIED 2026-10-15.
 - `nic1`, `nic3` — без линка. VERIFIED 2026-10-15.
+- `/etc/network/interfaces`: у `nic2` нет строки `auto` (у pve01 есть `auto nic2`); `nic2` при этом в состоянии UP на 1000Mb/s, поднимается, вероятно, через `bridge-ports nic2` (INFERRED). Различие между узлами — VERIFIED (вывод `cat /etc/network/interfaces` в чате #5; дата вывода в чате не указана).
 
 ## Public network (клиентский трафик, 1 Гбит/с)
 
