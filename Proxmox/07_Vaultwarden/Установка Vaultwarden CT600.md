@@ -5,7 +5,7 @@ document_type: setup
 status: completed
 priority: medium
 date_created: 2026-09-08
-date_modified: '2026-09-29'
+date_modified: '2026-10-26'
 next_review: 2026-12-01
 author: cladkyimaffin-hue
 category: 07_Vaultwarden
@@ -104,15 +104,18 @@ pct exec 600 -- systemctl restart vaultwarden
 ```bash
 pct exec 600 -- apt install -y argon2
 pct exec 600 -- bash -c 'TOKEN=$(openssl rand -base64 48) && echo "$TOKEN" && echo -n "$TOKEN" | argon2 $(openssl rand -base64 16) -id -t 2 -m 16 -l 32'
-# Полученный hash вписать в /etc/vaultwarden.env как ADMIN_TOKEN="<hash>"
+# Полученный hash вписать в /etc/vaultwarden.env как ADMIN_TOKEN=<hash> — без кавычек и с одинарными $
+# (EnvironmentFile читает файл буквально, см. PROXMOX-VAULTWARDEN-ADMIN-TOKEN-2026-001)
 pct exec 600 -- systemctl restart vaultwarden
 ```
+
+Предпочтительнее штатная команда `vaultwarden hash` вместо ручного `openssl` + `argon2` (как в `PROXMOX-VAULTWARDEN-ADMIN-TOKEN-2026-001`).
 
 ## Итоговая конфигурация (`/etc/vaultwarden.env`, ключевые параметры)
 ```
 ROCKET_ADDRESS=0.0.0.0
 WEB_VAULT_FOLDER=/usr/share/vaultwarden/web-vault
-ADMIN_TOKEN="$argon2id$v=19$m=65536,t=2,p=1$<SALT>$<HASH>"
+ADMIN_TOKEN=$argon2id$v=19$m=65536,t=2,p=1$<SALT>$<HASH>
 ```
 
 ## Проверка результата — подтверждено фактическим выполнением
@@ -134,7 +137,7 @@ Vaultwarden в LXC Debian 12 потребляет ~9 МБ RAM в состоян�
 текущей нагрузки.
 
 ## ⛔ Don't repeat
-См. `dont_repeat` во фронтматтере — семь пунктов, каждый — реальная
+См. `dont_repeat` во фронтматтере — каждый пункт — реальная
 преграда именно этой установки.
 
 ## Связанные документы
