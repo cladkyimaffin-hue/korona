@@ -6,7 +6,7 @@ document_type: setup
 status: completed
 priority: medium
 date_created: 2026-08-30
-date_modified: '2026-09-29'
+date_modified: '2026-10-27'
 next_review: 2026-12-01
 author: cladkyimaffin-hue
 category: 02_Installation
@@ -28,6 +28,9 @@ dont_repeat:
   — использовать штатный патч proxmoxlib.js или официальный community-скрипт.
 - Не убивать процесс apt/dpkg и не удалять lock-файлы «для ускорения» при `Waiting
   for cache lock` — обычно апт освобождается сам за 1-10 минут.
+- 'Не отключать файл репозитория без проверки `URIs`: после установки Ceph файл
+  `ceph.sources` содержит рабочий репозиторий `no-subscription` (ceph-squid), его
+  отключать нельзя — отключается только файл, где в `URIs` есть enterprise.proxmox.com.'
 related_files:
 - PROXMOX-NODE-RENAME-2026-001
 schema_version: '1.0'
@@ -89,15 +92,17 @@ ls -l /etc/apt/sources.list.d/
 **Отключить enterprise-репозитории в deb822-формате:**
 ```bash
 for f in /etc/apt/sources.list.d/pve-enterprise.sources /etc/apt/sources.list.d/ceph.sources; do
-  [ -f "$f" ] && { grep -q '^Enabled:' "$f" && sed -i 's/^Enabled:.*/Enabled: no/' "$f" || sed -i '1i Enabled: no' "$f"; }
+  [ -f "$f" ] && grep -q 'enterprise.proxmox.com' "$f" && { grep -q '^Enabled:' "$f" && sed -i 's/^Enabled:.*/Enabled: no/' "$f" || sed -i '1i Enabled: no' "$f"; }
 done
 ```
-Логика: если строка `Enabled:` уже есть — заменить на `Enabled: no`, если нет — добавить в начало файла.
+Логика: файл отключается только если в нём есть `enterprise.proxmox.com`; если строка `Enabled:` уже есть — заменить на `Enabled: no`, если нет — добавить в начало файла. Файл `ceph.sources`, переписанный на `no-subscription` (после установки Ceph, см. `PROXMOX-CEPH-OSD-POOLS-DEPLOYMENT-2026-001`), цикл не трогает: без проверки `URIs` повторный запуск отключил бы рабочий репозиторий Ceph, а `apt update` ошибок бы не показал.
 
 **Проверить, что no-subscription включён:**
 ```bash
 grep -ri 'no-subscription' /etc/apt/sources.list.d/
+grep -H -E '^(Enabled|URIs|Suites|Components):' /etc/apt/sources.list.d/*.sources
 ```
+Подтверждено на `pve01` (2026-10-27): `ceph.sources` — `ceph-squid`, `trixie`, `no-subscription`, без строки `Enabled:` (включён); `proxmox.sources` — `pve-no-subscription`, включён; `pve-enterprise.sources` и `pve-test.sources` — `Enabled: false`. Значение `false` равнозначно `no`. На `pve02` эта проверка не выполнялась.
 
 **Прочие типовые ошибки `apt update` (exit code 100) и что делать:**
 
@@ -117,6 +122,7 @@ to date`), `apt full-upgrade` не нашёл пакетов для обновл
 - Не предполагать формат `.list` — сначала проверить `ls /etc/apt/sources.list.d/`.
 - Не убивать apt/dpkg процессы и не удалять lock-файлы при обычном ожидании блокировки.
 - Не использовать сторонние no-nag скрипты из непроверенных источников.
+- Не отключать `ceph.sources` целиком: если в `URIs` стоит `download.proxmox.com` (`no-subscription`), это рабочий репозиторий Ceph.
 
 ## Связанные документы
 - «Смена hostname узла Proxmox VE» — тоже выполняется до вступления узла в кластер, логичный сосед по порядку операций после установки
