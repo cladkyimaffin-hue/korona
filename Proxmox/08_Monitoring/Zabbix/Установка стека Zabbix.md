@@ -5,8 +5,8 @@ document_type: setup
 status: completed
 priority: high
 date_created: 2026-09-14
-date_modified: '2026-09-29'
-next_review: 2026-10-01
+date_modified: '2026-10-27'
+next_review: 2026-11-15
 author: cladkyimaffin-hue
 category: 08_Monitoring/Zabbix
 tags:
