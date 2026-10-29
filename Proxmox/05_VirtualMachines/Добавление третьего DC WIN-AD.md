@@ -6,7 +6,7 @@ document_type: runbook
 status: completed
 priority: medium
 date_created: 2026-09-07
-date_modified: '2026-09-29'
+date_modified: '2026-10-29'
 next_review: 2026-12-01
 author: cladkyimaffin-hue
 category: 05_VirtualMachines
@@ -32,7 +32,10 @@ ai_summary: 'Полная история повышения ВМ 2002 (WIN-AD, �
   repadmin/dcdiag подтвердили здоровую репликацию AD со всеми партнёрами (ANDQ, DC).
   Единственный оставшийся в момент документа пункт — довершение начальной синхронизации
   SYSVOL через DFSR (backlog активно уменьшался, 99 файлов, ожидалось завершение за
-  5-10 минут).'
+  5-10 минут). Обновление 2026-10-29: SYSVOL на AD не завершил синхронизацию до
+  2026-10-27 (причина — остановка DFSR на DC, событие 4012); State 4 подтверждён
+  2026-10-27, см. PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001. ANDQ демотирован
+  2026-10-23.'
 dont_repeat:
 - НИКОГДА не нажимать Ctrl+C/Ctrl+Z во время выполнения Install-ADDSDomainController
   — легитимно может не давать вывод 5-15 минут.
@@ -55,9 +58,13 @@ dont_repeat:
 - Не паниковать из-за нескольких проваленных тестов dcdiag (Advertising, NetLogons)
   сразу после промоции, если они объясняются одной и той же причиной (SYSVOL State=2/Initializing,
   не Normal) — дождаться State=4 и события 4114.
+- 'Не считать State=2 «временным» без срока: здесь он продержался с 2026-09-07 до
+  2026-10-27, потому что партнёр-источник (DC) сам стоял в State 5 (событие 4012).
+  Если State 2 не уходит за час-два, сразу проверять State и событие 4012 на партнёре.'
 related_files:
 - PROXMOX-WINSRV2022-TEMPLATE-2026-001
 - PROXMOX-RDS-2003-2026-001
+- PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001
 schema_version: '1.0'
 aliases:
 - AD
@@ -66,6 +73,10 @@ aliases:
 ---
 
 # Добавление третьего контроллера домена (WIN-AD → AD, ВМ 2002) в домен krnn.ru — УСПЕШНО
+
+## Обновление (2026-10-29): SYSVOL и состав контроллеров
+- **SYSVOL на `AD` не завершил начальную синхронизацию после повышения.** Открытый пункт этого документа («довершение SYSVOL, ожидалось за 5-10 минут») оказался не закрытым почти семь недель: `AD` оставался в State 2 с пустым SYSVOL и неопубликованными шарами, пока 2026-10-27 не был выведен из ошибки партнёр `DC` (DFSR на нём стоял в State 5, событие 4012). State 4 и событие 4604 на `AD` подтверждены 2026-10-27 21:36:44 (VERIFIED). Подробности и причины — `PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001`.
+- **`ANDQ` больше не контроллер домена:** демотирован 2026-10-23 (VERIFIED по логу DFSR на `ANDQ`). Упоминания «3 DC: DC, ANDQ, AD» ниже описывают состояние на момент повышения (2026-09), сейчас в домене два контроллера: `DC` и `AD`.
 
 ## Обновление от администратора (2026-09-11)
 ВМ 2002 впоследствии переименована: `WIN-AD` → **`AD`** (в Proxmox
@@ -93,7 +104,7 @@ EVENTLOG (Error): NTDS Database / Архивация данных : 2542
 файлом `ntds.dit` от прерванной попытки.
 
 **Очистка перед повтором:**
-```powershell
+```
 Test-Path C:\Windows\NTDS\ntds.dit                                                          # → False
 Get-ChildItem C:\Windows\NTDS -Force -ErrorAction SilentlyContinue                            # → пусто
 Get-ItemProperty 'HKLM:\System\CurrentControlSet\Services\NTDS\Parameters' -Name 'DSA Database Epoch' -ErrorAction SilentlyContinue  # → пусто
@@ -111,7 +122,7 @@ Get-ItemProperty 'HKLM:\System\CurrentControlSet\Services\NTDS\Parameters' -Name
 то есть не консоль встала на паузу, а сам процесс DCPromo не завершался.
 
 **Решение — принудительная остановка:**
-```powershell
+```
 Stop-Process -Id 4216 -Force
 Get-Process powershell
 ```
@@ -134,7 +145,7 @@ DC никогда не регистрировали `WIN-AD` как полноц
 
 ### Попытка 3 — успешна, подтверждено инструментально
 
-```powershell
+```
 Install-ADDSDomainController `
   -DomainName "krnn.ru" `
   -Credential (Get-Credential) `
@@ -171,7 +182,7 @@ Get-WmiObject ... DfsrReplicatedFolderInfo → State: 2 (Initializing, не 4/No
 ```
 Это ожидаемое временное состояние: DFSR-репликация SYSVOL идёт отдельно
 от репликации базы AD. Ускорено через:
-```powershell
+```
 Install-WindowsFeature RSAT-DFS-Mgmt-Con
 dfsrdiag pollad
 dfsrdiag backlog /rgname:"Domain System Volume" /rfname:"SYSVOL Share" /smem:DC /rmem:AD
@@ -180,22 +191,26 @@ dfsrdiag backlog /rgname:"Domain System Volume" /rfname:"SYSVOL Share" /smem:DC 
 стандартных GPO), что подтвердило: соединение DFSR установлено и активно
 реплицирует, а не зависло.
 
+> Это предположение не подтвердилось: репликация SYSVOL на `AD` так и не завершилась (см. обновление 2026-10-29 выше). В `PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001` на `AD` в 2026-10-27 был 0 файлов в SYSVOL при 24 на `DC`.
+
 ## Проверка результата
-- [x] `Get-ADDomainController -Filter *` — 3 контроллера домена: `DC`, `ANDQ`, `AD`.
+- [x] `Get-ADDomainController -Filter *` — 3 контроллера домена: `DC`, `ANDQ`, `AD` (на момент повышения, 2026-09; `ANDQ` демотирован 2026-10-23).
 - [x] `repadmin /replsummary`/`repadmin /showrepl` — репликация со всеми партнёрами без ошибок.
 - [x] `dcdiag /v /c` — все ключевые тесты PASS (кроме Advertising/NetLogons, см. ниже).
-- [ ] `dcdiag /test:Advertising`, `dcdiag /test:NetLogons`, `Get-SmbShare` (SYSVOL/NETLOGON) — на момент последнего сообщения в этой сессии ещё не проходили: SYSVOL (DFSR) был в состоянии `Initializing` (State=2), бэклог 99 файлов активно уменьшался. **Финальное подтверждение State=4/событие 4114 в архиве не найдено** — при следующем обращении к этой ВМ проверить, что синхронизация действительно завершилась.
+- [x] `dcdiag /test:Advertising`, `dcdiag /test:NetLogons`, шары SYSVOL/NETLOGON — **пройдены 2026-10-27**, после вывода `DC` из события 4012; State=4, событие 4604 (VERIFIED, `PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001`). Событие 4114 в источниках не приводилось.
 - [ ] Осиротевший объект `WIN-AD` (если остались следы старого имени после переименования в `AD`) — сверить отдельно.
 - [ ] Замечена, но не разобрана мелкая аномалия: `Get-ADDomainController -Filter *` в какой-то момент показал `ANDQ` с IP `172.27.48.1` вместо ожидаемого `192.168.200.10` — вероятно, локальная особенность разрешения имени на сервере `AD`, не блокирует работу, но не проверена отдельно.
 - [ ] Обратные DNS-зоны для подсети — упоминались как оставшаяся задача, не подтверждены выполненными.
 
 ## ⛔ Don't repeat
-См. `dont_repeat` во фронтматтере — семь пунктов, все из реальных, дорого
-стоивших по времени (сутки простоя) эпизодов этой сессии.
+См. `dont_repeat` во фронтматтере — восемь пунктов, все из реальных, дорого
+стоивших по времени (сутки простоя, затем семь недель незамеченного SYSVOL)
+эпизодов.
 
 ## Связанные документы
 - «Шаблон Windows Server 2022» — исходный шаблон (ID 2000), из которого клонирована ВМ 2002
 - «Терминальный сервер RDS ВМ 2003» — использует этот же DC (`AD.krnn.ru`) как сервер лицензирования RDS
+- `PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001` — остановка DFSR/SYSVOL, события 4012 и 4604, восстановление 2026-10-27
 
 ---
 *Примечание при миграции (2026-09-11): этот документ объединяет ДВА
