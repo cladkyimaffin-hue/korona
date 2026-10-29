@@ -1,0 +1,255 @@
+---
+document_id: "PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001"
+title: "Восстановление репликации SYSVOL (DFSR) на контроллерах krnn.ru — DC в ошибке 4012, AD в Initial Sync"
+document_type: "troubleshooting"
+status: "completed"
+priority: "high"
+date_created: 2026-10-29
+date_modified: 2026-10-29
+next_review: 2026-11-28
+author: "cladkyimaffin-hue"
+category: "06_Troubleshooting"
+tags:
+  - ActiveDirectory
+  - AD-DS
+  - WindowsServer2025
+  - krnn.ru
+  - Replication
+  - dfsr
+  - sysvol
+  - DNS
+  - Zabbix
+  - Diagnostics
+  - Troubleshooting
+  - pve01
+ai_summary: "SYSVOL на контроллере AD (ВМ 2002) застрял в State 2 (Initial Sync), шары SYSVOL и NETLOGON не публиковались. Корневая причина — не сбой питания 26.10.2026, а остановка DFSR на партнёре DC (State 5, событие 4012: 215 дней без репликации при MaxOfflineTimeInDays=60). Исправлено 2026-10-27 временным подъёмом лимита на DC до 365 и перезапуском DFSR; AD сам завершил синхронизацию (событие 4604), D2/D4 не понадобились; лимит возвращён на 60, SYSVOL идентичен по хэшам. Попутно найдены: неверный порядок DNS на AD, демотированный ANDQ, потерянные файлы GPO WinRM, отсутствие мониторинга DFSR."
+dont_repeat:
+  - "Не считать сбой питания причиной зависшего SYSVOL: DFSR на AD пережил его штатно (события 2212, 2218, 2214), а остановка DFSR на DC (4012) началась месяцами раньше. Ложный след стоил нескольких часов диагностики."
+  - "Не выполнять D2/D4 на AD, пока партнёр-источник в State 5: источник остановлен, синхронизировать не с чем. Сначала проверить State на ОБОИХ контроллерах, и только потом выбирать процедуру."
+  - "Не искать параметр D2 в локальном реестре: путь HKLM:\\SYSTEM\\CurrentControlSet\\Services\\DFSR\\Parameters\\SysVols\\Replicating SysVols\\<GUID> на этих серверах не существует (Test-Path вернул False, 2026-10-27). Для DFSR-SYSVOL флаг msDFSR-Enabled хранится в объекте подписки в AD."
+  - "Не использовать несуществующие команды dfsrdiag databasestate и dfsrdiag connections (ответ: «Неизвестная команда»). Не искать базу DFSR в C:\\Windows\\System32\\DFSR — такого каталога нет."
+  - "Не считать State 2 состоянием auto-recovery. Коды State: 0 Uninitialized, 1 Initialized, 2 Initial Sync, 3 Auto Recovery, 4 Normal, 5 In Error."
+  - "Не делать вывод о «повреждении конфигурации DFSR в AD» по отсутствию атрибутов msDFSR-Enabled, msDFSR-ReplicationGroupGuid, msDFSR-Flags у родительского объекта группы и по whenChanged=26.03.2025: подписки SYSVOL на AD и DC были исправны. Пустой вывод командлетов Get-Dfsr* для группы «Domain System Volume» тоже не доказательство повреждения."
+  - "Не запускать Backup-GPO -All как единственный бэкап: он останавливается на первой GPO без файлов в SYSVOL. Бэкапить по одной политике в try/catch."
+  - "Не называть PowerShell-функцию именем H: это встроенный алиас Get-History, он приоритетнее функции."
+  - "Не рассчитывать на wmic в Windows Server 2025: параметр DFSR менять через Get-CimInstance / Set-CimInstance."
+  - "Не оставлять MaxOfflineTimeInDays=365 насовсем: лимит — защита от репликации устаревших данных. Подъём нужен только чтобы вывести сервер из 4012, затем вернуть 60."
+  - "Не принимать заключение чата «ANDQ — здоровый донор» без проверки: ANDQ демотирован 2026-10-23, его DFSR не слушает порт 5722."
+vm_id: "2002"
+hostname: "AD"
+node: "pve01"
+cluster: "krnn"
+last_verified: 2026-10-28
+related_files:
+  - "PROXMOX-AD-THIRD-DC-PROMOTION-2026-001"
+  - "PROXMOX-VM2002-AD-RAM-INCREASE-2026-001"
+  - "PROXMOX-RDS-2003-2026-001"
+  - "ZABBIX-STACK-INSTALL-2026-001"
+schema_version: "1.1"
+---
+
+# Восстановление репликации SYSVOL (DFSR) на контроллерах krnn.ru — DC в ошибке 4012, AD в Initial Sync
+
+## Краткий ответ
+
+- **Причина (VERIFIED):** DFSR на контроллере `DC` (`192.168.200.2`) находился в State 5 (In Error). Событие 4012, ошибка 9061: сервер «отключён от партнёров 215 дней» при `MaxOfflineTimeInDays` = 60, репликация папки SYSVOL остановлена. Вывод `Get-EventLog` / `Get-WinEvent` на `DC`, 2026-10-27.
+- **Следствие (VERIFIED):** контроллер `AD` (ВМ 2002, `192.168.200.225`), поднятый до DC 2026-09-07, ждал начальной синхронизации от остановленного партнёра. State 2 (Initial Sync), в `C:\Windows\SYSVOL\domain` 0 файлов (на `DC` — 24), шары `SYSVOL` и `NETLOGON` не опубликованы, `SysvolReady = 0`, `dcdiag` падал на Advertising и NetLogons.
+- **Сбой питания 26.10.2026 причиной не был (VERIFIED):** DFSR на `AD` восстановился штатно (2212 → 2218 → 2214), события 2213 (пауза репликации) не было. 4012 на `DC` повторялось регулярно, то есть возникло раньше.
+- **Исправление (VERIFIED):** 2026-10-27 на `DC` `MaxOfflineTimeInDays` поднят до 365 и перезапущен DFSR. State на `DC` стал 4, в 21:36:44 на `AD` появилось событие 4604 (начальная синхронизация завершена), шары опубликованы, State 4. D2 и D4 не потребовались.
+- **Финал (VERIFIED):** 2026-10-28 лимит на `DC` возвращён на 60, State 4. Хэши всех файлов SYSVOL на `AD` и `DC` совпадают, `repadmin /replsummary` — 0 сбоев, `dcdiag` по SysVolCheck, Advertising, NetLogons, DFSREvent пройден.
+- **Почему обрыв начался ~2026-03-26 и что его вызвало — не установлено (UNKNOWN).** SYSVOL в этом состоянии не реплицировался около семи месяцев, никто не заметил: мониторинга DFSR нет.
+
+## 1. Симптомы
+
+- После скачков питания 2026-10-26 администратор сообщил, что «Active Directory отключался» и перестала работать синхронизация между доменом и контроллером домена.
+- На `AD`: `dcdiag` — ошибка разрешения имени узла `AD.krnn.ru` (0x2af9), Advertising и NetLogons FAILED; шар `SYSVOL`/`NETLOGON` нет; в событиях Group Policy на `AD` — 1058 (не читается Default Domain Policy из пустого SYSVOL) от 21.09 и 25.10.
+- `repadmin /showrepl` на `AD` выдавал ошибку 8453 «Доступ к репликации отвергнут» для части запросов.
+- Обычный RDP на `DC` не пускал из-за ошибки лицензирования RDS (скриншот, текст не сохранён). Почему DC требовал лицензию RDS, не выяснено (UNKNOWN).
+
+## 2. Хронология
+
+| Дата | Событие | Статус |
+|---|---|---|
+| ~2026-03-26 | Последняя успешная репликация SYSVOL на `DC`: 215 дней до 2026-10-27 | INFERRED (расчёт от текста события 4012); причина обрыва UNKNOWN |
+| ~2026-05-25 | +60 дней: DFSR на `DC` переходит в State 5 (событие 4012) | INFERRED (расчёт) |
+| 2026-09-07 | `AD` повышен до DC, создана подписка SYSVOL | VERIFIED по документу `PROXMOX-AD-THIRD-DC-PROMOTION-2026-001`; подписка создана 07.09 — по выводу атрибутов, дата интерпретирована как момент повышения |
+| 2026-09-12 … 2026-10-13 | На `AD` события 5008: не удалось подключиться к партнёру `dc` | VERIFIED (журнал DFSR) |
+| 2026-10-23 08:01 | На `ANDQ` (`192.168.200.10`) выполнена демотия DFSR (`DfsrStartDemotionW`), позже в логе `IsDc:0, Not a DC` | VERIFIED (лог `dfsr*.log` на ANDQ, присланный администратором) |
+| 2026-10-26 ~14:55–15:14 | Сбой питания: на `AD` события 2212 (неожиданное завершение), затем 2218 и 2214 (восстановление); `DC` загружен 15:08:10 | VERIFIED |
+| 2026-10-27 ~14:00–14:40 | Диагностика, замена порядка DNS на `AD`, `repadmin /replsummary`: 0 сбоев | VERIFIED |
+| 2026-10-27 18:07:23 | Снапшот ВМ 2002 (имя в источнике обрезано: `before-d2-sysvol-restor…`) | VERIFIED со слов администратора |
+| 2026-10-27 19:11 | На `AD` выполнены `Stop-Service dfsr` и `Start-Service dfsr`; база DFSR не удалялась | VERIFIED (вывод команд) |
+| 2026-10-27 21:36 | `DC`: `MaxOfflineTimeInDays` = 365, `Restart-Service DFSR`; State 5 → 4 | VERIFIED |
+| 2026-10-27 21:36:44 | `AD`: событие 4604, State 4, шары опубликованы, `SysvolReady = 1` | VERIFIED |
+| 2026-10-28 ~09:10 | Сравнение SYSVOL по хэшам: различий нет | VERIFIED |
+| 2026-10-28 ~09:44 | `DC`: лимит возвращён на 60, State 4 | VERIFIED |
+
+## 3. Проверено и отвергнуто
+
+| Гипотеза | Статус | Комментарий |
+|---|---|---|
+| Причина — сбой питания и повреждение базы DFSR на `AD` | ❌ Отвергнута | DFSR на `AD` восстановился штатно (2214). Причина — 4012 на `DC` |
+| Причина — неверный DNS на `AD` | ⚠️ Побочная проблема, не причина SYSVOL | `AD` имел DNS-серверы `192.168.200.10` и `192.168.200.2` без `127.0.0.1`; `nslookup AD.krnn.ru` на `192.168.200.10` давал Non-existent domain. После правки имя разрешается, 8453 исчезла. Причинная связь с 8453 не доказана (INFERRED): параллельно выполнялся `ipconfig /registerdns` |
+| Ошибка 4012 на `AD` | ❌ Отвергнута | Чат 1 приписал события 4012 серверу `AD`; вывод снят на `DC` (после перехода на него). На `AD` State 2 без 4012 (INFERRED по контексту чатов, вывод `Get-EventLog` в чате 1 не подписан именем сервера) |
+| Повреждена конфигурация DFSR в AD (варианты А/Б/В: правка атрибутов, пересоздание топологии, откат System State) | ❌ Отвергнута | Подписки SYSVOL на `AD` и `DC`: `msDFSR-Enabled = True`, GUID группы `0FFF5AA0-…` совпадает с событиями 6806; события 1206 и 6806 при каждом старте службы |
+| `ANDQ` как здоровый донор | ❌ Отвергнута | `ANDQ` не DC с 2026-10-23; процесс DFSR запущен, порт 5722 не слушается; `Restart-Service dfsr` на ANDQ не помог |
+| D2 (неавторитетное восстановление) на `AD` через реестр | ❌ Не выполнялось | Путь реестра не существует; D2 для DFSR делается через `msDFSR-Enabled` в AD. Команда `Set-ADObject … msDFSR-Enabled=$false` была предложена, но не выполнена; `msDFSR-Enabled` на `AD` остался `True` |
+| Откат снапшота ВМ 2002 | ❌ Не применялся | Снапшот сделан после начала проблемы; откат контроллера домена — риск USN rollback (INFERRED, общая практика) |
+
+## 4. Диагностика
+
+Команды выполнялись на `AD` или `DC` (указано в комментарии). Класс: `[R]` чтение, `[W]` изменение.
+
+```powershell
+# [R] State папки SYSVOL: 2 Initial Sync, 4 Normal, 5 In Error
+Get-CimInstance -Namespace root\microsoftdfs -ClassName DfsrReplicatedFolderInfo | Select ReplicatedFolderName, State
+# AD (до исправления): SYSVOL Share = 2; DC: 5; после исправления на обоих: 4
+
+# [R] События DFSR (4012 = лимит offline, 4604 = начальная синхронизация завершена и др.)
+Get-WinEvent -FilterHashtable @{LogName='DFS Replication'; Id=4012,4102,4104,4112,4114,4602,4604,5004,5008,5014; StartTime=(Get-Date).AddHours(-2)} -ErrorAction SilentlyContinue |
+  Select TimeCreated, Id, @{n='Msg';e={($_.Message -split "`r?`n")[0]}} | Format-Table -Wrap
+
+# [R] Публикация шар и готовность SYSVOL
+net share
+reg query HKLM\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters /v SysvolReady
+
+# [R] Подписки SYSVOL в AD (проверять именно их, а не родительский объект группы)
+Get-ADObject -LDAPFilter "(objectClass=msDFSR-Subscription)" -SearchBase "OU=Domain Controllers,DC=krnn,DC=ru" -Properties msDFSR-Enabled |
+  Format-Table distinguishedName, msDFSR-Enabled -AutoSize
+
+# [R] Текущий лимит offline (ожидаемо 60)
+Get-CimInstance -Namespace root\microsoftdfs -ClassName DfsrMachineConfig | Select MaxOfflineTimeInDays
+
+# [R] Репликация AD DS и целостность DC
+repadmin /replsummary
+dcdiag /test:sysvolcheck /test:advertising /test:netlogons /test:dfsrevent
+```
+
+Ключевые результаты 2026-10-27:
+
+- `repadmin /replsummary` показывает только `AD` и `DC` как DSA, 0 сбоев из 5 в обе стороны (VERIFIED). `ANDQ` в списке нет, что согласуется с демотией (INFERRED).
+- `MaxOfflineTimeInDays` на `DC` = 60 (VERIFIED); на `AD` не менялся.
+- В SYSVOL на `DC`: 24 файла (21 175 байт), 11 папок в `Policies`; на `AD` до исправления — 0 файлов (VERIFIED).
+- Тест порта `5722` на `DC` и `ANDQ` до исправления: TCP connect failed (VERIFIED). Для `DC` это согласуется с остановленным DFSR (INFERRED). После исправления события 5004 (подключение установлено) идут.
+- События 5014 с ошибкой 9033 («отменено завершением работы») совпадают по времени с перезапусками DFSR и считаются ожидаемыми (INFERRED).
+
+## 5. Корневая причина
+
+**Установлено (VERIFIED):** DFSR на `DC` остановил репликацию SYSVOL из-за 4012: сервер считался отключённым от партнёров 215 дней при лимите 60. Единственная работающая копия SYSVOL лежала на `DC`; `AD`, подключённый 2026-09-07, не мог получить начальную синхронизацию от остановленного партнёра.
+
+**Не установлено (UNKNOWN):** что оборвало репликацию примерно 2026-03-26. Журнал DFSR на `DC` за тот период не просматривался (команда `Get-WinEvent -LogName "DFS Replication" -Oldest -MaxEvents 30` предложена, вывода нет, журнал мог перезаписаться). Подсказка, но не доказательство: `ANDQ`, бывший партнёр репликации, демотирован только 2026-10-23.
+
+**Почему не заметили (VERIFIED):** мониторинга DFSR и шар SYSVOL/NETLOGON в Zabbix нет.
+
+## 6. Решение
+
+Выполнено 2026-10-27/28. Порядок критичен: сначала вывести источник (`DC`), потом приёмник (`AD`).
+
+1. **Бэкап на `DC` (до любых изменений).**
+
+   ```powershell
+   # [W] Создаёт каталоги и копирует файлы, DFSR и AD не меняет
+   New-Item -ItemType Directory -Path C:\Backup\SYSVOL_DC -Force | Out-Null
+   robocopy C:\Windows\SYSVOL\domain C:\Backup\SYSVOL_DC /E /COPYALL /DCOPY:DAT /R:1 /W:1
+   New-Item -ItemType Directory -Path C:\Backup\GPO_DC -Force | Out-Null
+   foreach ($g in Get-GPO -All) {
+     try { Backup-GPO -Guid $g.Id -Path C:\Backup\GPO_DC -ErrorAction Stop | Out-Null; "OK   $($g.DisplayName)" }
+     catch { "FAIL $($g.DisplayName) [$($g.Id)] : $($_.Exception.Message)" }
+   }
+   # копия на другой сервер: оригинал и копия не должны лежать вместе
+   robocopy C:\Backup \\AD\C$\Backup_from_DC /E /COPYALL /DCOPY:DAT /R:1 /W:1
+   ```
+
+   Результат: robocopy SYSVOL 24 из 24 файлов, 0 ошибок; GPO — 10 OK, 2 FAIL (`WinRM`, `TestGPO` — у них нет файлов в SYSVOL); на `AD` скопировано 102 файла, 0 ошибок. Диска `D:` на `DC` нет.
+
+2. **Вывести `DC` из 4012.**
+
+   ```powershell
+   # [W] На DC. Откат: тем же вызовом поставить 60 и перезапустить DFSR
+   Get-CimInstance -Namespace root\microsoftdfs -ClassName DfsrMachineConfig | Set-CimInstance -Property @{MaxOfflineTimeInDays=365}
+   Get-CimInstance -Namespace root\microsoftdfs -ClassName DfsrMachineConfig | Select MaxOfflineTimeInDays   # ожидаем 365
+   Restart-Service DFSR
+   Start-Sleep 60
+   Get-CimInstance -Namespace root\microsoftdfs -ClassName DfsrReplicatedFolderInfo | Select ReplicatedFolderName, State   # ожидаем 4
+   ```
+
+   Результат: State 4, новых 4012 нет, шары и `SysvolReady = 1` сохранились при перезапуске.
+
+3. **Дать `AD` догнать `DC` без вмешательства.** На `AD` выполнить опрос (`dfsrdiag pollad`, если `dfsrdiag` установлен — установка не подтверждена) и подождать 5–10 минут. Результат: событие 4604 в 21:36:44, State 4, шары опубликованы, 24 файла.
+
+4. **Проверить и сравнить.**
+
+   ```powershell
+   # [R] На AD. Пустой вывод = содержимое SYSVOL идентично
+   function Get-SysvolHash($s){ $r="\\$s\SYSVOL\krnn.ru"; Get-ChildItem $r -Recurse -File -Force -ErrorAction SilentlyContinue | Get-FileHash | ForEach-Object { "{0}  {1}" -f $_.Hash, $_.Path.Substring($r.Length) } }
+   Compare-Object (Get-SysvolHash AD) (Get-SysvolHash DC)
+   ```
+
+   Отдельно проверена живая репликация DC → AD пустым тестовым файлом в `C:\Windows\SYSVOL\domain\scripts` (появился и исчез на `AD`). Обратное направление не проверялось.
+
+5. **Вернуть лимит.**
+
+   ```powershell
+   # [W] На DC. Откат: поставить 365 той же командой
+   Get-CimInstance -Namespace root\microsoftdfs -ClassName DfsrMachineConfig | Set-CimInstance -Property @{MaxOfflineTimeInDays=60}
+   Restart-Service DFSR
+   ```
+
+   Результат: значение 60, State 4. Решение принято по рекомендации: при 365 защита от устаревших данных срабатывала бы только через год, а проблема была в отсутствии мониторинга.
+
+**DNS на `AD` (отдельное изменение, 2026-10-27):**
+
+```powershell
+# [W] На AD. Откат: ("192.168.200.10","192.168.200.2")
+Set-DnsClientServerAddress -InterfaceAlias "Ethernet" -ServerAddresses ("127.0.0.1","192.168.200.10","192.168.200.2")
+ipconfig /registerdns
+```
+
+Результат: `nslookup AD.krnn.ru` → `192.168.200.225`. Порядок «себя первым» — рекомендация чата по общей практике для DC (INFERRED). Наличие `192.168.200.10` (демотированный `ANDQ`) в списке DNS пока не пересматривалось.
+
+## 7. Побочные находки
+
+- **Две GPO без файлов в SYSVOL (VERIFIED):** `WinRM` (`BB58FFA6-9F7D-4ED2-B48F-9860D8373F13`, создана 2026-02-21, изменена 2026-03-10, версия компьютерной части 59, привязана к `OU=Бедолаги`) и `TestGPO` (`FF96AF1A-5DC3-4D1A-B5F3-ECD28C863C11`, версии 0/0, нигде не привязана, создана 2026-02-22). Файлы потеряны до этих работ, репликация их не вернёт. В `OU=Бедолаги` около 80 компьютеров; из примерно 30 отвечающих на ping WinRM отвечает на `PDO2` и `ALFA` (в источнике список приведён не целиком). По факту политика ничего не включает давно. Решение по `WinRM` отложено: восстановить из бэкапа ВМ в изоляции, из кэша History клиента или создать заново; `TestGPO` оставлена.
+- **Лишняя пустая папка `{4023F14D-…}` в `Policies` (VERIFIED):** безвредна, оставлена.
+- **Каталог `domain\scripts` пуст (VERIFIED):** логон-скрипты в домене, видимо, не использовались (INFERRED со слов администратора «вероятно не нужны»).
+- **Бэкапы** `C:\Backup` на `DC` и `C:\Backup_from_DC` на `AD` оставлены. Обе ВМ на одном Proxmox (`pve01`); копия вне этих ВМ не подтверждена (UNKNOWN).
+- **Пользователи и компьютеры из `OU=Бедолаги` не затронуты:** они хранятся в базе AD (NTDS), репликация которой работала (INFERRED из `repadmin`, SYSVOL к ним отношения не имеет).
+
+## 8. Проверка результата
+
+- [x] DFSR `SYSVOL Share` State 4 на `AD` и `DC` (VERIFIED, 2026-10-27/28).
+- [x] Шары `SYSVOL` и `NETLOGON` на `AD`, `SysvolReady = 1`, 24 файла (VERIFIED, 2026-10-27).
+- [x] `dcdiag` SysVolCheck, Advertising, NetLogons, DFSREvent пройден; предупреждение DFSREvent относилось к событиям последних суток (VERIFIED, 2026-10-27).
+- [x] `repadmin /replsummary`: 0 сбоев (VERIFIED, 2026-10-27).
+- [x] Хэши SYSVOL на `AD` и `DC` совпадают (VERIFIED, 2026-10-28).
+- [x] `MaxOfflineTimeInDays` на `DC` = 60, State 4 (VERIFIED, 2026-10-28).
+- [ ] Повторный `dcdiag /test:dfsrevent` без предупреждений через сутки — **не приведён** (UNKNOWN).
+- [ ] Репликация AD → DC новым файлом — **не проверялась**.
+
+## 9. Мониторинг (план, не реализован)
+
+- **Zabbix Agent 2 установлен, запущен, автозапуск на `DC` и `AD`** (VERIFIED, 2026-10-28). Конфигурация на обоих: `Server=192.168.200.223`, `ServerActive=127.0.0.1` (по умолчанию, активный режим не работает), `Hostname=DC` / `Hostname=AD`, `Timeout` не задан, подключён каталог `zabbix_agent2.d`. Для проверок журналов событий нужен активный режим: `ServerActive` потребуется заменить на `192.168.200.223`.
+- Узлы `DC` и `AD` в Zabbix и версия сервера **не проверены** (UNKNOWN; скриншот не получен).
+- Согласованный состав: State DFSR (триггер при значении не 4 три замера подряд), наличие шар `SYSVOL` и `NETLOGON`, `SysvolReady`, число файлов SYSVOL на `DC` и `AD` (расхождение 24 против 0 здесь и было симптомом), события DFSR 4012, 2213, 2104 (High), 5008 (Warning при повторах), события Directory Service (1925, 1311, 2042, 2087, 2088, 1722), службы DFSR, NTDS, Netlogon, DNS, KDC, W32Time, счётчики NTDS через `perf_counter_en` (Windows русская). Скрипт сбора для `UserParameter` подготовлен, но не запускался и не проверялся, поэтому в репозиторий не включён.
+
+## 10. Открытые вопросы
+
+- Что оборвало репликацию SYSVOL на `DC` около 2026-03-26 (UNKNOWN). Дата похожа на `whenChanged` = 26.03.**2025** у объектов топологии DFSR (выведена из вывода администратора); совпадение дня и месяца с расчётом 215 дней не объяснено, версия «опечатка в годе» не подтверждена.
+- Сохранились ли ВМ или диск `ANDQ` и бэкапы Proxmox `DC`/`ANDQ` за 2026-03-10…03-26 (вопрос задавался, ответа нет) — от этого зависит восстановление `WinRM`.
+- Нужна ли GPO `WinRM`; удалять ли `TestGPO` и пустую папку.
+- Список DNS на `AD` содержит `192.168.200.10` (`ANDQ`, не DC). Какие клиенты и DHCP ещё указывают на него — не проверялось.
+- Что с ANDQ дальше (выключен ли, снят ли с домена полностью) и кто выполнил демотию 2026-10-23 — не зафиксировано.
+- Судьба снапшота ВМ 2002 (имя обрезано, 2026-10-27 18:07:23) и внешняя копия `C:\Backup`.
+- Реализация мониторинга DFSR в Zabbix (раздел 9).
+- Почему обычный RDP на `DC` требовал лицензию RDS (раздел 1).
+
+## 11. Связанные документы
+
+- `PROXMOX-AD-THIRD-DC-PROMOTION-2026-001` — повышение ВМ 2002 до DC; его открытый пункт «подтверждение State 4 / события 4114» закрыт этим инцидентом: State 4 и событие 4604 подтверждены 2026-10-27.
+- `PROXMOX-VM2002-AD-RAM-INCREASE-2026-001` — та же ВМ; предположение о доступности `ANDQ` при остановке ВМ устарело (ANDQ демотирован 2026-10-23).
+- `PROXMOX-RDS-2003-2026-001` — RDS Licensing размещён на `AD`; ошибка лицензирования при RDP на `DC`.
+- `ZABBIX-STACK-INSTALL-2026-001` — сервер Zabbix `192.168.200.223`, куда подключается агент.
+
+## Источник
+
+Четыре экспорта чатов диагностики 2026-10-27/28 (`user_input`, `command_output`): три файла `chat--Восстановление_синхронизации_AD…__1/2/3.txt` (в них часть выводов и ошибочные гипотезы) и экспорт `Claude-Восстановление_DFSR_SYSVOL_после_сбоя-20261028-0841.md`, где установлена реальная причина и выполнено исправление. Сырые копии в репозиторий не помещены. Вывод лога `dfsr*.log` с `ANDQ`, выводы `repadmin`, `dcdiag`, `Get-WinEvent`, `Get-CimInstance`, `Compare-Object` предоставлены администратором. Версионный разбор общих знаний о DFSR (State 0–5, события 4012, 4604, 2212/2214, смысл `MaxOfflineTimeInDays`) — в чате, без ссылки на документацию Microsoft в репозитории (INFERRED).
