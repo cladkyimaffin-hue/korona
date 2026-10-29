@@ -104,7 +104,7 @@ EVENTLOG (Error): NTDS Database / Архивация данных : 2542
 файлом `ntds.dit` от прерванной попытки.
 
 **Очистка перед повтором:**
-```
+```powershell
 Test-Path C:\Windows\NTDS\ntds.dit                                                          # → False
 Get-ChildItem C:\Windows\NTDS -Force -ErrorAction SilentlyContinue                            # → пусто
 Get-ItemProperty 'HKLM:\System\CurrentControlSet\Services\NTDS\Parameters' -Name 'DSA Database Epoch' -ErrorAction SilentlyContinue  # → пусто
@@ -122,7 +122,7 @@ Get-ItemProperty 'HKLM:\System\CurrentControlSet\Services\NTDS\Parameters' -Name
 то есть не консоль встала на паузу, а сам процесс DCPromo не завершался.
 
 **Решение — принудительная остановка:**
-```
+```powershell
 Stop-Process -Id 4216 -Force
 Get-Process powershell
 ```
@@ -145,7 +145,7 @@ DC никогда не регистрировали `WIN-AD` как полноц
 
 ### Попытка 3 — успешна, подтверждено инструментально
 
-```
+```powershell
 Install-ADDSDomainController `
   -DomainName "krnn.ru" `
   -Credential (Get-Credential) `
@@ -182,7 +182,7 @@ Get-WmiObject ... DfsrReplicatedFolderInfo → State: 2 (Initializing, не 4/No
 ```
 Это ожидаемое временное состояние: DFSR-репликация SYSVOL идёт отдельно
 от репликации базы AD. Ускорено через:
-```
+```powershell
 Install-WindowsFeature RSAT-DFS-Mgmt-Con
 dfsrdiag pollad
 dfsrdiag backlog /rgname:"Domain System Volume" /rfname:"SYSVOL Share" /smem:DC /rmem:AD
