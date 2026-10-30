@@ -2,7 +2,7 @@
 schema_version: "1.1"
 status: "in_progress"
 date_created: 2026-10-21
-date_modified: 2026-10-25
+date_modified: 2026-10-29
 maintainer: "cladkyimaffin-hue"
 file_type: "commands_reference"
 confidence: "Команды перенесены из документов домена без изменения смысла; контекст, ожидаемый вывод и ограничения — в документе-источнике. Покрытие неполное: список источников и то, что не вошло, — в конце файла."
@@ -1611,6 +1611,121 @@ wdctl
 modprobe iTCO_wdt
 ```
 
+## 21. Active Directory: SYSVOL и репликация DFSR (PowerShell, внутри ВМ)
+
+Имена контроллеров и домен — плейсхолдеры: `<DC_источник>` — контроллер, с которого `SYSVOL`
+реплицируется (в источнике — `DC`), `<DC_приёмник>` — контроллер, который его получает
+(в источнике — `AD`). Блоки выполняются на указанном контроллере от администратора. Порядок
+при простое SYSVOL: сначала привести в порядок источник, потом приёмник. Резервную копию делать
+до первого изменения. Классы и состояние событий — в `PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001`.
+
+```powershell
+# [R] State папки SYSVOL на контроллере — PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001
+# Выполнять на КАЖДОМ контроллере, не только на проблемном: причина часто на партнёре.
+# Коды: 0 Uninitialized, 1 Initialized, 2 Initial Sync, 3 Auto Recovery, 4 Normal, 5 In Error.
+# Initial Sync (2), не уходящий за час-два, при State 5 на партнёре означает, что источник остановлен
+Get-CimInstance -Namespace root\microsoftdfs -ClassName DfsrReplicatedFolderInfo | Select ReplicatedFolderName, State
+```
+
+```powershell
+# [R] События DFSR за последние часы — PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001
+# 4012 — сервер отключён от партнёров дольше MaxOfflineTimeInDays, репликация остановлена;
+# 4604 — начальная синхронизация завершена; 5008 — не удалось подключиться к партнёру;
+# 2212/2218/2214 — аварийное завершение и штатное восстановление базы после сбоя питания
+Get-WinEvent -FilterHashtable @{LogName='DFS Replication'; Id=4012,4102,4104,4112,4114,4602,4604,5004,5008,5014; StartTime=(Get-Date).AddHours(-2)} -ErrorAction SilentlyContinue |
+  Select TimeCreated, Id, @{n='Msg';e={($_.Message -split "`r?`n")[0]}} | Format-Table -Wrap
+```
+
+```powershell
+# [R] Опубликованы ли шары и готов ли SYSVOL — PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001
+# Нет шар SYSVOL и NETLOGON и SysvolReady = 0 — контроллер не «объявляет» себя (Advertising, NetLogons в dcdiag)
+net share
+reg query HKLM\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters /v SysvolReady
+```
+
+```powershell
+# [R] Подписки SYSVOL в AD — PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001
+# Проверять именно подписки (msDFSR-Subscription), а не родительский объект группы «Domain System Volume»:
+# отсутствие msDFSR-Enabled, GUID и Flags у родителя не признак повреждения конфигурации
+Get-ADObject -LDAPFilter "(objectClass=msDFSR-Subscription)" -SearchBase "OU=Domain Controllers,<DN_домена>" -Properties msDFSR-Enabled |
+  Format-Table distinguishedName, msDFSR-Enabled -AutoSize
+```
+
+```powershell
+# [R] Текущий лимит offline (по умолчанию 60) — PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001
+Get-CimInstance -Namespace root\microsoftdfs -ClassName DfsrMachineConfig | Select MaxOfflineTimeInDays
+```
+
+```powershell
+# [R] Репликация AD и тесты, зависящие от SYSVOL — PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001
+repadmin /replsummary
+dcdiag /test:sysvolcheck /test:advertising /test:netlogons /test:dfsrevent
+```
+
+```powershell
+# [R] Доступность порта DFSR на партнёре — PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001
+# TCP 5722 закрыт у сервера, у которого DFSR остановлен (4012) или который больше не контроллер домена
+Test-NetConnection <DC_партнёр> -Port 5722
+```
+
+```powershell
+# [W] Резервная копия SYSVOL и GPO на источнике (по порядку, до любых изменений) — PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001
+# GPO бэкапить по одной в try/catch: Backup-GPO -All останавливается на первой политике без файлов
+# в SYSVOL. Копию держать не только на этом же сервере и не только на этом же Proxmox
+New-Item -ItemType Directory -Path C:\Backup\SYSVOL_<DC_источник> -Force | Out-Null
+robocopy C:\Windows\SYSVOL\domain C:\Backup\SYSVOL_<DC_источник> /E /COPYALL /DCOPY:DAT /R:1 /W:1
+New-Item -ItemType Directory -Path C:\Backup\GPO_<DC_источник> -Force | Out-Null
+foreach ($g in Get-GPO -All) {
+  try { Backup-GPO -Guid $g.Id -Path C:\Backup\GPO_<DC_источник> -ErrorAction Stop | Out-Null; "OK   $($g.DisplayName)" }
+  catch { "FAIL $($g.DisplayName) [$($g.Id)] : $($_.Exception.Message)" }
+}
+robocopy C:\Backup \\<DC_приёмник>\C$\Backup_from_<DC_источник> /E /COPYALL /DCOPY:DAT /R:1 /W:1
+```
+
+```powershell
+# [W] Временно поднять MaxOfflineTimeInDays на источнике и перезапустить DFSR (по порядку)
+# PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001
+# Только когда на источнике событие 4012 и State 5. Выводит сервер из ошибки, но отключает защиту от
+# репликации устаревших данных: после State 4 вернуть 60 (блок ниже), насовсем не оставлять.
+# wmic в Windows Server 2025 может отсутствовать — использовать CIM. Откат: тем же вызовом поставить 60
+Get-CimInstance -Namespace root\microsoftdfs -ClassName DfsrMachineConfig | Set-CimInstance -Property @{MaxOfflineTimeInDays=365}
+Get-CimInstance -Namespace root\microsoftdfs -ClassName DfsrMachineConfig | Select MaxOfflineTimeInDays
+Restart-Service DFSR
+Start-Sleep 60
+Get-CimInstance -Namespace root\microsoftdfs -ClassName DfsrReplicatedFolderInfo | Select ReplicatedFolderName, State
+```
+
+```powershell
+# [W] Ускорить опрос конфигурации на приёмнике (по необходимости) — PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001
+# dfsrdiag входит в RSAT-DFS-Mgmt-Con (раздел 10). Обычно приёмник сам завершает синхронизацию за 5–10
+# минут после выхода источника из ошибки; D2/D4 для этого не нужны
+dfsrdiag pollad
+```
+
+```powershell
+# [R] Сравнить содержимое SYSVOL на двух контроллерах по хэшам — PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001
+# Пустой вывод — идентично. Имя функции не делать «H»: это встроенный алиас Get-History
+function Get-SysvolHash($s){ $r="\\$s\SYSVOL\<домен>"; Get-ChildItem $r -Recurse -File -Force -ErrorAction SilentlyContinue | Get-FileHash | ForEach-Object { "{0}  {1}" -f $_.Hash, $_.Path.Substring($r.Length) } }
+Compare-Object (Get-SysvolHash <DC_приёмник>) (Get-SysvolHash <DC_источник>)
+```
+
+```powershell
+# [W] Вернуть лимит offline после State 4 на обоих контроллерах — PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001
+# Откат: поставить 365 той же командой
+Get-CimInstance -Namespace root\microsoftdfs -ClassName DfsrMachineConfig | Set-CimInstance -Property @{MaxOfflineTimeInDays=60}
+Restart-Service DFSR
+```
+
+```powershell
+# [W] Порядок DNS-серверов на контроллере: себя первым — PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001
+# Применено на AD 2026-10-27; «себя первым» — общая практика для DC (INFERRED). Имя интерфейса —
+# из Get-DnsClientServerAddress. Откат: прежний список адресов. Демотированный сервер в списке
+# оставлять не нужно, но решение по нему отложено
+Get-DnsClientServerAddress -AddressFamily IPv4
+Set-DnsClientServerAddress -InterfaceAlias "<интерфейс>" -ServerAddresses ("127.0.0.1","<DNS2>","<DNS3>")
+ipconfig /registerdns
+```
+
 ---
 
 ## Покрытие
@@ -1634,6 +1749,7 @@ modprobe iTCO_wdt
 - `PROXMOX-CLUSTER-QDEVICE-SETUP-2026-001`
 - `PROXMOX-QDEVICE-REPLACEMENT-2026-001`
 - `PROXMOX-AD-THIRD-DC-PROMOTION-2026-001`
+- `PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001`
 - `PROXMOX-RDS-2003-2026-001`
 - `PROXMOX-VM2001-USB-HASP-2026-001`
 - `PROXMOX-VAULTWARDEN-INSTALL-2026-001`
