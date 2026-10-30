@@ -1,6 +1,6 @@
 ---
 schema_version: "1.0"
-date_modified: 2026-10-28
+date_modified: 2026-10-29
 status: "active"
 maintainer: "cladkyimaffin-hue"
 file_type: "navigation_index"
@@ -94,6 +94,7 @@ source_of_truth: "00_Meta/registry.csv"
 | `PROXMOX-CEPH-BOND0-LATENCY-INVESTIGATION-2026-001` | [Исследование задержек записи Ceph через bond0 (165-204 мс) — НЕ ЗАВЕРШЕНО, реальная диагностика не начата](./06_Troubleshooting/%D0%A0%D0%B0%D1%81%D1%81%D0%BB%D0%B5%D0%B4%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5%20%D0%B7%D0%B0%D0%B4%D0%B5%D1%80%D0%B6%D0%B5%D0%BA%20%D0%B7%D0%B0%D0%BF%D0%B8%D1%81%D0%B8%20Ceph.md) | `troubleshooting` | `in_progress` | `high` | `ProxmoxVE`, `Ceph`, `Networking`, `bond0`, `pve01`, `pve02`, `Troubleshooting` |
 | `PROXMOX-CEPH-PUBLIC-NETWORK-1C-2026-001` | [Тормоза 1С (ВМ 2001 Srv1c): public_network и линк pve02 — ЧАСТИЧНО ПРОВЕРЕНО](./06_Troubleshooting/1c-slow-public-network-2026-10-15.md) | `troubleshooting` | `in_progress` | `high` | `ProxmoxVE`, `Ceph`, `OSD`, `Networking`, `Troubleshooting`, `Diagnostics`, `1C`, `pve01`, `pve02` |
 | `PROXMOX-VM2002-AD-RAM-INCREASE-2026-001` | [Нехватка RAM на ВМ 2002 AD и увеличение до 8 ГБ](./06_Troubleshooting/%D0%9D%D0%B5%D1%85%D0%B2%D0%B0%D1%82%D0%BA%D0%B0%20RAM%20%D0%BD%D0%B0%20%D0%92%D0%9C%202002%20AD%20%D0%B8%20%D1%83%D0%B2%D0%B5%D0%BB%D0%B8%D1%87%D0%B5%D0%BD%D0%B8%D0%B5%20%D0%B4%D0%BE%208%20%D0%93%D0%91.md) | `troubleshooting` | `completed` | `medium` | `ProxmoxVE`, `WindowsServer2025`, `ActiveDirectory`, `BalloonService`, `MemoryManagement`, `QEMUGuestAgent`, `Diagnostics`, `Troubleshooting`, `Configuration`, `pve01` |
+| `PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001` | [Восстановление репликации SYSVOL (DFSR) на контроллерах krnn.ru — DC в ошибке 4012, AD в Initial Sync](./06_Troubleshooting/%D0%92%D0%BE%D1%81%D1%81%D1%82%D0%B0%D0%BD%D0%BE%D0%B2%D0%BB%D0%B5%D0%BD%D0%B8%D0%B5%20%D1%80%D0%B5%D0%BF%D0%BB%D0%B8%D0%BA%D0%B0%D1%86%D0%B8%D0%B8%20SYSVOL%20DFSR%20%D0%BD%D0%B0%20%D0%BA%D0%BE%D0%BD%D1%82%D1%80%D0%BE%D0%BB%D0%BB%D0%B5%D1%80%D0%B0%D1%85%20%D0%B4%D0%BE%D0%BC%D0%B5%D0%BD%D0%B0.md) | `troubleshooting` | `completed` | `high` | `ActiveDirectory`, `AD-DS`, `WindowsServer2025`, `krnn.ru`, `Replication`, `dfsr`, `sysvol`, `DNS`, `Zabbix`, `Diagnostics`, `Troubleshooting`, `pve01` |
 
 ### `07_Vaultwarden`
 
@@ -171,6 +172,8 @@ source_of_truth: "00_Meta/registry.csv"
 | Планируется ли миграция ВМ с pve01 на pve02? | Нет: план отменён администратором 2026-10-28, миграция не выполнялась. Прежняя идея — оставить на pve01 только ВМ 1С ERP; причина жалоб на скорость 1С не подтверждена замерами (INFERRED). Документ сохранён как историческая запись. | [05_VirtualMachines/План миграции ВМ для изоляции 1С ERP.md](./05_VirtualMachines/%D0%9F%D0%BB%D0%B0%D0%BD%20%D0%BC%D0%B8%D0%B3%D1%80%D0%B0%D1%86%D0%B8%D0%B8%20%D0%92%D0%9C%20%D0%B4%D0%BB%D1%8F%20%D0%B8%D0%B7%D0%BE%D0%BB%D1%8F%D1%86%D0%B8%D0%B8%201%D0%A1%20ERP.md) |
 | Включён ли автозапуск ВМ и LXC при перезагрузке pve01 и в каком порядке они стартуют? | Да, `onboot` включён у ВМ 2001–2003 и CT 600, 700. Порядок и открытые вопросы — в документе; перезагрузкой узла не проверялось. | [05_VirtualMachines/Автозапуск и порядок старта ВМ и LXC на pve01.md](./05_VirtualMachines/%D0%90%D0%B2%D1%82%D0%BE%D0%B7%D0%B0%D0%BF%D1%83%D1%81%D0%BA%20%D0%B8%20%D0%BF%D0%BE%D1%80%D1%8F%D0%B4%D0%BE%D0%BA%20%D1%81%D1%82%D0%B0%D1%80%D1%82%D0%B0%20%D0%92%D0%9C%20%D0%B8%20LXC%20%D0%BD%D0%B0%20pve01.md) |
 | Почему в `qm config` у ВМ уже новый объём RAM, а в Windows прежний? | Перезагрузка из гостя не перезапускает процесс QEMU: новая `memory` применяется после полной остановки и запуска ВМ. Проверять `max_mem` в `info balloon`, а не только `qm config`. Hotplug памяти включать только при `numa: 1`: при `numa: 0` ВМ не загрузилась. | [06_Troubleshooting/Нехватка RAM на ВМ 2002 AD и увеличение до 8 ГБ.md](./06_Troubleshooting/%D0%9D%D0%B5%D1%85%D0%B2%D0%B0%D1%82%D0%BA%D0%B0%20RAM%20%D0%BD%D0%B0%20%D0%92%D0%9C%202002%20AD%20%D0%B8%20%D1%83%D0%B2%D0%B5%D0%BB%D0%B8%D1%87%D0%B5%D0%BD%D0%B8%D0%B5%20%D0%B4%D0%BE%208%20%D0%93%D0%91.md) |
+| На контроллере домена пустой SYSVOL, не публикуются шары SYSVOL и NETLOGON, DFSR в State 2 — что проверять? | Сначала State DFSR на обоих контроллерах. Если у партнёра-источника State 5 и событие 4012 (offline дольше `MaxOfflineTimeInDays`), начальная синхронизация не завершится. Порядок: резервная копия SYSVOL и GPO, временно поднять лимит на источнике, перезапустить DFSR, дождаться State 4 на приёмнике, вернуть лимит на 60. D2/D4 не применять, пока источник в ошибке. Сбой питания причиной не был. | [06_Troubleshooting/Восстановление репликации SYSVOL DFSR на контроллерах домена.md](./06_Troubleshooting/%D0%92%D0%BE%D1%81%D1%81%D1%82%D0%B0%D0%BD%D0%BE%D0%B2%D0%BB%D0%B5%D0%BD%D0%B8%D0%B5%20%D1%80%D0%B5%D0%BF%D0%BB%D0%B8%D0%BA%D0%B0%D1%86%D0%B8%D0%B8%20SYSVOL%20DFSR%20%D0%BD%D0%B0%20%D0%BA%D0%BE%D0%BD%D1%82%D1%80%D0%BE%D0%BB%D0%BB%D0%B5%D1%80%D0%B0%D1%85%20%D0%B4%D0%BE%D0%BC%D0%B5%D0%BD%D0%B0.md) |
+| Является ли ANDQ контроллером домена? | Нет: демотирован 2026-10-23, в домене два контроллера (`DC` и `AD`). Подробности — в разделе Active Directory env facts. | [AI-environment_facts-korona-proxmox.md](./AI-environment_facts-korona-proxmox.md) |
 
 ## Дерево решений
 
@@ -227,6 +230,8 @@ source_of_truth: "00_Meta/registry.csv"
   │    └─ 05_VirtualMachines/Клонирование ВМ под роль 1С-ERP.md
   ├─ Active Directory, третий DC
   │    └─ 05_VirtualMachines/Добавление третьего DC WIN-AD.md
+  ├─ SYSVOL пустой или не публикуется, DFSR в State 2 или 5, событие 4012
+  │    └─ 06_Troubleshooting/Восстановление репликации SYSVOL DFSR на контроллерах домена.md
   ├─ Терминальный сервер RDS
   │    └─ 05_VirtualMachines/Терминальный сервер RDS ВМ 2003.md
   ├─ USB-ключ HASP
