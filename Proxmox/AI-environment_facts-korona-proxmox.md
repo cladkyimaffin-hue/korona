@@ -1,7 +1,7 @@
 ---
 schema_version: "1.0"
 status: "active"
-date_modified: 2026-10-29
+date_modified: 2026-10-30
 maintainer: "cladkyimaffin-hue"
 file_type: "environment_facts"
 source_commit: "0230c2500f92a066444d4135d3346725ab5f01cb"
@@ -105,10 +105,10 @@ confidence: "Факты сверены с текущими документам�
 - Домен: `krnn.ru`.
 - Контроллеры домена (CURRENT, 2026-10-29): `DC.krnn.ru` (`192.168.200.2`, Windows Server 2025) и `AD.krnn.ru` (`192.168.200.225`, ВМ 2002, Windows Server 2025; повышен до DC 2026-09-07). `repadmin /replsummary` (2026-10-27) показывает только эти два DSA, 0 сбоев в обе стороны (VERIFIED).
 - `ANDQ.krnn.ru` (`192.168.200.10`): **HISTORICAL — больше не контроллер домена.** DFSR на `ANDQ` выполнил демотию 2026-10-23 08:01, в логе позже `IsDc:0, Not a DC` (VERIFIED по логу `dfsr*.log`, присланному администратором, 2026-10-27). Кто и зачем выполнил демотию и что с сервером дальше, не зафиксировано (UNKNOWN). Прежние записи этого файла и документов, где `ANDQ` назван DC, относятся к периоду до 2026-10-23.
-- SYSVOL/DFSR: `State = 4` (Normal) на `AD` и `DC`, шары `SYSVOL` и `NETLOGON` опубликованы, хэши файлов SYSVOL идентичны (VERIFIED, 2026-10-27/28). `MaxOfflineTimeInDays = 60` на обоих. Причина простоя и ход восстановления — `PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001`. Мониторинга DFSR в Zabbix пока нет.
+- SYSVOL/DFSR: `State = 4` (Normal) на `AD` и `DC`, шары `SYSVOL` и `NETLOGON` опубликованы, хэши файлов SYSVOL идентичны (VERIFIED, 2026-10-27/28). `MaxOfflineTimeInDays = 60` на обоих. Причина простоя и ход восстановления — `PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001`. Мониторинг DFSR в Zabbix реализован со слов администратора (2026-10-30); состав элементов и триггеров не передан (UNKNOWN).
 - DNS-клиент на `AD` (изменён 2026-10-27): `127.0.0.1`, `192.168.200.10`, `192.168.200.2`. Наличие `192.168.200.10` (демотированный `ANDQ`) в списке не пересматривалось (UNKNOWN).
-- Zabbix Agent 2 установлен и запущен на `DC` и `AD`: `Server=192.168.200.223`, `ServerActive=127.0.0.1` (по умолчанию, активный режим не работает), `Hostname=DC` / `AD` (VERIFIED, 2026-10-28).
-- GPO `WinRM` (привязана к `OU=Бедолаги`) потеряла файлы в SYSVOL до работ 2026-10-27; решение о восстановлении не принято.
+- Zabbix Agent 2 установлен и запущен на `DC` и `AD`: `Server=192.168.200.223`, `Hostname=DC` / `AD`, на момент проверки 2026-10-28 `ServerActive=127.0.0.1` (по умолчанию, активный режим не работал). После настройки мониторинга значение не перепроверялось (UNKNOWN).
+- GPO `WinRM` (привязана к `OU=Бедолаги`) потеряла файлы в SYSVOL до работ 2026-10-27. Решение отложено администратором 2026-10-30 как не критичное; состояние, причины и способы возврата — `PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001`, раздел 7а.
 
 ## Стратегия распределения ВМ (отменена администратором 2026-10-28; рассматривалась 2026-10-07)
 
@@ -147,7 +147,7 @@ confidence: "Факты сверены с текущими документам�
 `PROXMOX-NETWORK-TOPOLOGY-2026-001` (физическая схема сети pve01/pve02),
 `PROXMOX-CEPH-PUBLIC-NETWORK-1C-2026-001` (тормоза 1С и public_network),
 `PROXMOX-VM2002-AD-RAM-INCREASE-2026-001` (оповещение о памяти ВМ 2002 AD и увеличение RAM до 8 ГБ),
-`PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001` (остановка DFSR/SYSVOL на DC, событие 4012, восстановление, демотированный ANDQ),
+`PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001` (остановка DFSR/SYSVOL на DC, событие 4012, восстановление, демотированный ANDQ, GPO WinRM),
 `ZABBIX-STACK-INSTALL-2026-001`,
 `ZABBIX-PVE-API-MONITORING-2026-001`,
 `ZABBIX-LXC-FALSE-ALERTS-2026-001` (ложные алерты Zabbix на LXC 700; расхождения по IP и узлу размещения закрыты — см. `00_Meta/CONFLICTS.md`),
