@@ -76,6 +76,7 @@ Users → API tokens → Create API token (раздел меню Users, а не 
 - Enabled: включено
 
 Значение токена показывается один раз. Окно нельзя закрывать, пока токен не сохранён на сервере.
+<img width="1380" height="675" alt="image" src="https://github.com/user-attachments/assets/bbdb5c93-62e6-4995-b902-fbed74a5d9a6" />
 
 ### 3.5. Сохранение токена на сервере
 
