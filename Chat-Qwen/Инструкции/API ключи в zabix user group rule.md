@@ -44,6 +44,7 @@ Users → User roles → Create user role.
 - Access to UI elements: снять все галочки
 - Access to API: Enabled, режим Allow list, методы `*.get` и `apiinfo.version`
 - Access to actions: снять все галочки
+<img width="1122" height="848" alt="image" src="https://github.com/user-attachments/assets/940866dd-0296-4df8-9140-ec5d5c7140bd" />
 
 ### 3.2. Группа пользователей
 
@@ -53,6 +54,8 @@ Users → User groups → Create user group.
 - Вкладка Host permissions: Select, отметить нужные группы узлов, в переключателе выбрать **Read**, нажать ссылку **Add** под полем групп (в списке должны появиться строки с правом Read), затем нажать кнопку сохранения формы.
 
 Важно: право Deny имеет приоритет над остальными. Если группы выбраны, но не добавлены ссылкой Add, права не сохраняются, и пользователь не увидит ни одного узла.
+<img width="1090" height="619" alt="image" src="https://github.com/user-attachments/assets/29668bec-8074-4d62-92ab-c5bec44a99ac" />
+<img width="1433" height="349" alt="image" src="https://github.com/user-attachments/assets/0d2bddec-a41c-47cb-a2cc-ca3a57f60f74" />
 
 ### 3.3. Пользователь
 
@@ -61,6 +64,8 @@ Users → Users → Create user.
 - Username: `api-ro`, Groups: `api-ro-group`
 - Password: случайный, не короче 16 символов; для работы через API не используется, хранить в менеджере паролей
 - Вкладка Permissions, Role: `api-ro`
+<img width="1103" height="791" alt="image" src="https://github.com/user-attachments/assets/9a51b36b-f88d-41c5-a70d-c9ac6c0752c1" />
+<img width="949" height="408" alt="image" src="https://github.com/user-attachments/assets/8c4d66bd-3bb4-4ffc-9dc1-14ea3a643320" />
 
 ### 3.4. API-токен
 
