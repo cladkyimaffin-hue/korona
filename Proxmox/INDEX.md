@@ -1,6 +1,6 @@
 ---
 schema_version: "1.0"
-date_modified: 2026-10-29
+date_modified: 2026-10-31
 status: "active"
 maintainer: "cladkyimaffin-hue"
 file_type: "navigation_index"
@@ -113,6 +113,8 @@ source_of_truth: "00_Meta/registry.csv"
 | `ZABBIX-PVE-API-MONITORING-2026-001` | [Мониторинг кластера Proxmox через API в Zabbix (шаблон Proxmox VE by HTTP) — ошибка 403 из-за Privilege Separation токена (решено), ошибка 401 (решено)](./08_Monitoring/Zabbix/%D0%9C%D0%BE%D0%BD%D0%B8%D1%82%D0%BE%D1%80%D0%B8%D0%BD%D0%B3%20Proxmox%20%D1%87%D0%B5%D1%80%D0%B5%D0%B7%20API.md) | `setup` | `completed` | `high` | `ProxmoxVE`, `Zabbix`, `krnn`, `pve01`, `pve02` |
 | `ZABBIX-AGENT-PVE-NODES-2026-001` | [Установка Zabbix Agent на pve01/pve02 — репозиторий Zabbix для bookworm несовместим, узлы на Debian 13 (trixie)](./08_Monitoring/Zabbix/%D0%A3%D1%81%D1%82%D0%B0%D0%BD%D0%BE%D0%B2%D0%BA%D0%B0%20Zabbix%20Agent%20%D0%BD%D0%B0%20%D1%83%D0%B7%D0%BB%D0%B0%D1%85.md) | `setup` | `completed` | `medium` | `ProxmoxVE`, `Zabbix`, `Debian`, `pve01`, `pve02` |
 | `ZABBIX-LXC-FALSE-ALERTS-2026-001` | [Ложные алерты Zabbix для собственного LXC-хоста Zabbix (память, Load Average, интерфейсы DOWN)](./08_Monitoring/Zabbix/%D0%9B%D0%BE%D0%B6%D0%BD%D1%8B%D0%B5%20%D0%B0%D0%BB%D0%B5%D1%80%D1%82%D1%8B%20Zabbix%20%D0%B4%D0%BB%D1%8F%20LXC-%D1%85%D0%BE%D1%81%D1%82%D0%B0%20Zabbix%20%28%D0%BF%D0%B0%D0%BC%D1%8F%D1%82%D1%8C%20Load%20Average%20%D0%B8%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B%29.md) | `troubleshooting` | `in_progress` | `medium` | `Zabbix`, `LXC`, `Debian12`, `MemoryManagement`, `Diagnostics`, `Troubleshooting`, `ProxmoxVE`, `pve02`, `Hostname`, `Bash` |
+| `ZABBIX-AD-DFSR-MONITORING-2026-001` | [Мониторинг DFSR/SYSVOL и репликации AD в Zabbix на контроллерах DC и AD (krnn.ru)](./08_Monitoring/Zabbix/%D0%9C%D0%BE%D0%BD%D0%B8%D1%82%D0%BE%D1%80%D0%B8%D0%BD%D0%B3%20AD%20DFSR%20%D0%B8%20SYSVOL%20%D0%B2%20Zabbix.md) | `setup` | `completed` | `high` | `Zabbix`, `ActiveDirectory`, `AD-DS`, `krnn.ru`, `Replication`, `dfsr`, `sysvol`, `WindowsServer2025`, `Configuration`, `Setup`, `krnn` |
+| `ZABBIX-API-CLI-ACCESS-2026-001` | [Доступ к Zabbix API из командной строки: пользователи api-ro и api-rw, роли, группы, токены и порядок записи](./08_Monitoring/Zabbix/%D0%94%D0%BE%D1%81%D1%82%D1%83%D0%BF%20%D0%BA%20Zabbix%20API%20%D0%B8%D0%B7%20%D0%BA%D0%BE%D0%BC%D0%B0%D0%BD%D0%B4%D0%BD%D0%BE%D0%B9%20%D1%81%D1%82%D1%80%D0%BE%D0%BA%D0%B8.md) | `runbook` | `completed` | `medium` | `Zabbix`, `Security`, `Configuration`, `Automation`, `Bash`, `Debian12`, `Setup` |
 
 ### `99_Archive`
 
@@ -174,6 +176,8 @@ source_of_truth: "00_Meta/registry.csv"
 | Почему в `qm config` у ВМ уже новый объём RAM, а в Windows прежний? | Перезагрузка из гостя не перезапускает процесс QEMU: новая `memory` применяется после полной остановки и запуска ВМ. Проверять `max_mem` в `info balloon`, а не только `qm config`. Hotplug памяти включать только при `numa: 1`: при `numa: 0` ВМ не загрузилась. | [06_Troubleshooting/Нехватка RAM на ВМ 2002 AD и увеличение до 8 ГБ.md](./06_Troubleshooting/%D0%9D%D0%B5%D1%85%D0%B2%D0%B0%D1%82%D0%BA%D0%B0%20RAM%20%D0%BD%D0%B0%20%D0%92%D0%9C%202002%20AD%20%D0%B8%20%D1%83%D0%B2%D0%B5%D0%BB%D0%B8%D1%87%D0%B5%D0%BD%D0%B8%D0%B5%20%D0%B4%D0%BE%208%20%D0%93%D0%91.md) |
 | На контроллере домена пустой SYSVOL, не публикуются шары SYSVOL и NETLOGON, DFSR в State 2 — что проверять? | Сначала State DFSR на обоих контроллерах. Если у партнёра-источника State 5 и событие 4012 (offline дольше `MaxOfflineTimeInDays`), начальная синхронизация не завершится. Порядок: резервная копия SYSVOL и GPO, временно поднять лимит на источнике, перезапустить DFSR, дождаться State 4 на приёмнике, вернуть лимит на 60. D2/D4 не применять, пока источник в ошибке. Сбой питания причиной не был. | [06_Troubleshooting/Восстановление репликации SYSVOL DFSR на контроллерах домена.md](./06_Troubleshooting/%D0%92%D0%BE%D1%81%D1%81%D1%82%D0%B0%D0%BD%D0%BE%D0%B2%D0%BB%D0%B5%D0%BD%D0%B8%D0%B5%20%D1%80%D0%B5%D0%BF%D0%BB%D0%B8%D0%BA%D0%B0%D1%86%D0%B8%D0%B8%20SYSVOL%20DFSR%20%D0%BD%D0%B0%20%D0%BA%D0%BE%D0%BD%D1%82%D1%80%D0%BE%D0%BB%D0%BB%D0%B5%D1%80%D0%B0%D1%85%20%D0%B4%D0%BE%D0%BC%D0%B5%D0%BD%D0%B0.md) |
 | Является ли ANDQ контроллером домена? | Нет: демотирован 2026-10-23, в домене два контроллера (`DC` и `AD`). Подробности — в разделе Active Directory env facts. | [AI-environment_facts-korona-proxmox.md](./AI-environment_facts-korona-proxmox.md) |
+| Что мониторится по DFSR/SYSVOL и репликации AD в Zabbix на контроллерах `DC` и `AD`? | Мастер-элемент `ad.dfsr.health` (JSON из скрипта, раз в 5 минут), 8 зависимых элементов и триггеры: DFSR не в State 4 и шары SYSVOL/NETLOGON не опубликованы (High), ошибки и отсутствие репликации AD, нет данных от агента, расхождение SYSVOL между контроллерами (только на `DC`). События журнала DFSR и счётчики NTDS не добавлялись сознательно. Срабатывание на реальном сбое не проверялось. | [08_Monitoring/Zabbix/Мониторинг AD DFSR и SYSVOL в Zabbix.md](./08_Monitoring/Zabbix/%D0%9C%D0%BE%D0%BD%D0%B8%D1%82%D0%BE%D1%80%D0%B8%D0%BD%D0%B3%20AD%20DFSR%20%D0%B8%20SYSVOL%20%D0%B2%20Zabbix.md) |
+| Как работать с Zabbix из командной строки и где лежат токены API? | С сервера Zabbix: `http://localhost/api_jsonrpc.php` (без `/zabbix/`), `curl` и `jq`. Два контура: `api-ro` (только `*.get`) и `api-rw` (создание и изменение элементов и триггеров, экспорт конфигурации; без удаления). Токены лежат в `/root/.zbx_ro_token` и `/root/.zbx_rw_token` (права 600), в историю и чат не попадают; токен записи действует до 2026-11-28. Перед записью — резервная выгрузка. | [08_Monitoring/Zabbix/Доступ к Zabbix API из командной строки.md](./08_Monitoring/Zabbix/%D0%94%D0%BE%D1%81%D1%82%D1%83%D0%BF%20%D0%BA%20Zabbix%20API%20%D0%B8%D0%B7%20%D0%BA%D0%BE%D0%BC%D0%B0%D0%BD%D0%B4%D0%BD%D0%BE%D0%B9%20%D1%81%D1%82%D1%80%D0%BE%D0%BA%D0%B8.md) |
 
 ## Дерево решений
 
@@ -264,5 +268,9 @@ source_of_truth: "00_Meta/registry.csv"
 
 ```text
 Вопрос про Zabbix?
-  └─ документы в 08_Monitoring/Zabbix/ (см. таблицу «Документы»)
+  ├─ Мониторинг DFSR/SYSVOL и репликации AD на DC и AD
+  │    └─ 08_Monitoring/Zabbix/Мониторинг AD DFSR и SYSVOL в Zabbix.md
+  ├─ Управление Zabbix из командной строки (API, токены, права)
+  │    └─ 08_Monitoring/Zabbix/Доступ к Zabbix API из командной строки.md
+  └─ остальные документы в 08_Monitoring/Zabbix/ (см. таблицу «Документы»)
 ```
