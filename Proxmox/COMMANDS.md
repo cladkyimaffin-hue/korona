@@ -2,7 +2,7 @@
 schema_version: "1.1"
 status: "in_progress"
 date_created: 2026-10-21
-date_modified: 2026-10-29
+date_modified: 2026-11-01
 maintainer: "cladkyimaffin-hue"
 file_type: "commands_reference"
 confidence: "Команды перенесены из документов домена без изменения смысла; контекст, ожидаемый вывод и ограничения — в документе-источнике. Покрытие неполное: список источников и то, что не вошло, — в конце файла."
@@ -691,6 +691,97 @@ tail -n 30 /var/log/zabbix/zabbix_server.log | grep "not found"
 # Чтение /sys/class/net/<интерфейс>/speed у интерфейса в состоянии DOWN даёт Invalid argument —
 # это поведение ядра, а не агента
 ip -details link show <интерфейс>
+```
+
+Блоки про Zabbix API (ниже) выполняются на самом сервере Zabbix, внутри контейнера (`pct enter <CTID>`).
+Токены и их файлы — только плейсхолдеры и пути, значений нет. Подробности и порядок записи — в
+`ZABBIX-API-CLI-ACCESS-2026-001`.
+
+```bash
+# [R] Доступность Zabbix API и версия, без авторизации — ZABBIX-API-CLI-ACCESS-2026-001
+# Путь без /zabbix/: на /zabbix/api_jsonrpc.php ответ «File not found.». Ожидается "result":"<версия>"
+curl -s -X POST -H "Content-Type: application/json-rpc" \
+  -d '{"jsonrpc":"2.0","method":"apiinfo.version","params":[],"id":1}' \
+  http://localhost/api_jsonrpc.php
+```
+
+```bash
+# [W] Установить jq (по порядку) — ZABBIX-API-CLI-ACCESS-2026-001
+# Откат: apt-get remove -y jq
+apt-get install -y jq
+jq --version
+```
+
+```bash
+# [W] Сохранить токен Zabbix API в файл с правами 600 скрытым вводом (по порядку) — ZABBIX-API-CLI-ACCESS-2026-001
+# Токен показывается в веб-интерфейсе один раз (Users → API tokens): окно не закрывать до сохранения;
+# если закрыли — удалить токен и создать новый. В командную строку, чат и скрипты токен не вставлять.
+# Для токена записи заменить имя файла на /root/.zbx_rw_token
+install -m 600 /dev/null /root/.zbx_ro_token
+read -rsp 'Вставьте токен и нажмите Enter: ' T; echo
+printf '%s' "$T" > /root/.zbx_ro_token; unset T
+ls -l /root/.zbx_ro_token
+wc -c /root/.zbx_ro_token   # ожидается 64
+```
+
+```bash
+# [R] Узлы и их группы через API — ZABBIX-API-CLI-ACCESS-2026-001
+# Токен идёт заголовком через конвейер и в историю не попадает. Пустой result при существующих узлах —
+# у группы пользователей токена не сохранились права на группы узлов (Deny или не нажата ссылка Add)
+printf 'Authorization: Bearer %s\n' "$(cat /root/.zbx_ro_token)" | \
+curl -s -X POST -H "Content-Type: application/json-rpc" -H @- \
+  -d '{"jsonrpc":"2.0","method":"host.get","params":{"output":["hostid","host","status"],"selectHostGroups":["groupid","name"]},"id":1}' \
+  http://localhost/api_jsonrpc.php | jq -c '.result[] | {hostid, host, status, groups: [.hostgroups[].name]}'
+```
+
+```bash
+# [R] Кто такой пользователь токена, его роль и группы — ZABBIX-API-CLI-ACCESS-2026-001
+# Смотреть при пустом host.get: users_status и gui_access группы, роль
+printf 'Authorization: Bearer %s\n' "$(cat /root/.zbx_ro_token)" | \
+curl -s -X POST -H "Content-Type: application/json-rpc" -H @- \
+  -d '{"jsonrpc":"2.0","method":"user.get","params":{"output":["userid","username"],"selectRole":["roleid","name","type"],"selectUsrgrps":["usrgrpid","name","users_status","gui_access"]},"id":1}' \
+  http://localhost/api_jsonrpc.php | jq .
+```
+
+```bash
+# [R] Проверка запрета записи у токена чтения — ZABBIX-API-CLI-ACCESS-2026-001
+# Узла 99999999 нет, менять нечего. Ожидается «No permissions to call "host.update"»
+printf 'Authorization: Bearer %s\n' "$(cat /root/.zbx_ro_token)" | \
+curl -s -X POST -H "Content-Type: application/json-rpc" -H @- \
+  -d '{"jsonrpc":"2.0","method":"host.update","params":{"hostid":"99999999","status":0},"id":1}' \
+  http://localhost/api_jsonrpc.php | jq .
+```
+
+```bash
+# [R] Что токен записи может изменять — ZABBIX-API-CLI-ACCESS-2026-001
+# editable оставляет только объекты с правом Read-write
+printf 'Authorization: Bearer %s\n' "$(cat /root/.zbx_rw_token)" | \
+curl -s -X POST -H "Content-Type: application/json-rpc" -H @- \
+  -d '{"jsonrpc":"2.0","method":"host.get","params":{"output":["hostid","host"],"editable":true},"id":1}' \
+  http://localhost/api_jsonrpc.php | jq -c '.result[]'
+```
+
+```bash
+# [W] Резервная выгрузка узлов перед любой записью через API (по порядку) — ZABBIX-API-CLI-ACCESS-2026-001
+# Идентификаторы узлов взять из host.get. Выгрузка содержит конфигурацию узлов: файл с правами 600
+# не копировать в чат и репозиторий. Шаблоны в выгрузку не входят
+install -d -m 700 /root/zbx-backup
+printf 'Authorization: Bearer %s\n' "$(cat /root/.zbx_rw_token)" | \
+curl -s -X POST -H "Content-Type: application/json-rpc" -H @- \
+  -d '{"jsonrpc":"2.0","method":"configuration.export","params":{"options":{"hosts":["<hostid1>","<hostid2>"]},"format":"json"},"id":1}' \
+  http://localhost/api_jsonrpc.php | jq -r '.result // .error' > /root/zbx-backup/hosts_<дата>.json
+chmod 600 /root/zbx-backup/hosts_<дата>.json
+ls -l /root/zbx-backup/
+```
+
+```bash
+# [W] Создать выключенный тестовый элемент (проверка права записи) — ZABBIX-API-CLI-ACCESS-2026-001
+# Удаление через API недоступно роли намеренно: элемент удалить вручную в веб-интерфейсе
+# (Data collection → Hosts → узел → Items). Прочитать результат токеном чтения (host.get → item.get)
+printf 'Authorization: Bearer %s\n' "$(cat /root/.zbx_rw_token)" | \
+curl -s -X POST -H "Content-Type: application/json-rpc" -H @- \
+  -d '{"jsonrpc":"2.0","method":"item.create","params":{"hostid":"<hostid>","name":"Тест записи через API (можно удалить)","key_":"api.test.write","type":2,"value_type":4,"status":1},"id":1}' \
+  http://localhost/api_jsonrpc.php | jq -c .
 ```
 
 ## 9. Диски под Ceph OSD
@@ -1726,6 +1817,56 @@ Set-DnsClientServerAddress -InterfaceAlias "<интерфейс>" -ServerAddress
 ipconfig /registerdns
 ```
 
+## 22. Zabbix Agent 2 и скрипт мониторинга DFSR на контроллерах домена (PowerShell, внутри ВМ)
+
+Блоки выполняются на каждом контроллере (`DC`, `AD`) от администратора. `Hostname` в
+`zabbix_agent2.conf` должен совпадать с именем узла в Zabbix буква в букву; адрес сервера Zabbix —
+плейсхолдер. Сам скрипт `ad_dfsr_health.ps1` (путь `C:\Program Files\Zabbix Agent 2\scripts\`) лежит в
+`ZABBIX-AD-DFSR-MONITORING-2026-001`, раздел 4, здесь не дублируется. Элементы и триггеры создаются в
+веб-интерфейсе Zabbix (или через API, раздел 8) и сюда не входят.
+
+```powershell
+# [R] Связь с сервером Zabbix для активных проверок — ZABBIX-AD-DFSR-MONITORING-2026-001
+# Порт 10051; ожидается TcpTestSucceeded : True
+Test-NetConnection <адрес_сервера_Zabbix> -Port 10051
+```
+
+```powershell
+# [R] Текущие параметры агента — ZABBIX-AD-DFSR-MONITORING-2026-001
+# ServerActive по умолчанию 127.0.0.1: активный режим тогда не работает, нужен адрес сервера Zabbix
+Select-String -Path "C:\Program Files\Zabbix Agent 2\zabbix_agent2.conf" -Pattern '^(Server|ServerActive|Hostname|Timeout)='
+```
+
+```powershell
+# [W] Резервная копия конфига перед правкой — ZABBIX-AD-DFSR-MONITORING-2026-001
+# Править вручную в редакторе: ServerActive=<адрес_сервера_Zabbix>, Timeout=30. Откат — вернуть файл из копии.
+# Не откатываться на более раннюю копию с ServerActive=127.0.0.1
+Copy-Item "C:\Program Files\Zabbix Agent 2\zabbix_agent2.conf" "C:\Program Files\Zabbix Agent 2\zabbix_agent2.conf.bak_<дата>"
+```
+
+```powershell
+# [W] Подключить UserParameter и перезапустить агент (по порядку) — ZABBIX-AD-DFSR-MONITORING-2026-001
+# Файл в ASCII без BOM. Откат: удалить ad_dfsr_health.conf и скрипт, вернуть конфиг из копии, перезапустить службу.
+# Перезапуск агента кратко прерывает сбор метрик с этого контроллера
+Set-Content -Path "C:\Program Files\Zabbix Agent 2\zabbix_agent2.d\ad_dfsr_health.conf" -Encoding ASCII -Value 'UserParameter=ad.dfsr.health,powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Program Files\Zabbix Agent 2\scripts\ad_dfsr_health.ps1"'
+Restart-Service "Zabbix Agent 2"
+Get-Service "Zabbix Agent 2"
+```
+
+```powershell
+# [R] Ключ локально через агента — ZABBIX-AD-DFSR-MONITORING-2026-001
+# Ожидается одна строка JSON (dfsr_state, shares, sysvol_ready, sysvol_files, policy_dirs, repl_partners,
+# repl_failed, repl_max_age_min); -1 в поле означает, что часть данных не прочиталась
+& "C:\Program Files\Zabbix Agent 2\zabbix_agent2.exe" -c "C:\Program Files\Zabbix Agent 2\zabbix_agent2.conf" -t ad.dfsr.health
+```
+
+```powershell
+# [R] Время выполнения скрипта — ZABBIX-AD-DFSR-MONITORING-2026-001
+# В источнике: DC около 3,4 с, AD около 1,7 с. Серверный таймаут мастер-элемента (Override) должен быть
+# заметно больше этого времени: на сервере Zabbix 7.0 он перекрывает Timeout агента (по умолчанию 3 с)
+Measure-Command { & "C:\Program Files\Zabbix Agent 2\scripts\ad_dfsr_health.ps1" } | Select-Object TotalSeconds
+```
+
 ---
 
 ## Покрытие
@@ -1745,6 +1886,8 @@ ipconfig /registerdns
 - `ZABBIX-PVE-API-MONITORING-2026-001`
 - `ZABBIX-AGENT-PVE-NODES-2026-001`
 - `ZABBIX-LXC-FALSE-ALERTS-2026-001`
+- `ZABBIX-AD-DFSR-MONITORING-2026-001`
+- `ZABBIX-API-CLI-ACCESS-2026-001`
 - `PROXMOX-CEPH-OSD-DISK-PREP-2026-001`
 - `PROXMOX-CLUSTER-QDEVICE-SETUP-2026-001`
 - `PROXMOX-QDEVICE-REPLACEMENT-2026-001`
