@@ -1,7 +1,7 @@
 ---
 schema_version: "1.0"
 status: "active"
-date_modified: 2026-10-30
+date_modified: 2026-10-31
 maintainer: "cladkyimaffin-hue"
 file_type: "environment_facts"
 source_commit: "0230c2500f92a066444d4135d3346725ab5f01cb"
@@ -90,9 +90,11 @@ confidence: "Факты сверены с текущими документам�
 - CTID: **700**.
 - IP: **`192.168.200.223/22`** (подтверждён администратором; расхождение закрыто, см. `00_Meta/CONFLICTS.md`, архив).
 - Узел: **`pve01`** (VERIFIED: `pct list` и `pvesh get /cluster/resources --type vm` на `pve01`, 2026-10-20; `ZABBIX-LXC-FALSE-ALERTS-2026-001` ранее называл `pve02` — расхождение закрыто в `00_Meta/CONFLICTS.md`).
-- Debian 12, Zabbix Server 7.0 LTS.
+- Debian 12, Zabbix Server 7.0 LTS (**7.0.31**, VERIFIED: `apiinfo.version`, 2026-10-29).
 - Шаблон: LXC 1000.
 - Перед работой с CTID/IP всегда сверять `pct list` и текущую конфигурацию.
+- Zabbix API: `http://localhost/api_jsonrpc.php` (только с самого сервера, без `/zabbix/`); пользователи `api-ro` (чтение) и `api-rw` (запись без удаления), токены в файлах `/root/.zbx_ro_token` и `/root/.zbx_rw_token` (права 600); токен `api-rw-cli` действует до 2026-11-28 (`ZABBIX-API-CLI-ACCESS-2026-001`).
+- `hostid` узлов Zabbix (VERIFIED: `host.get`, 2026-10-29): `Zabbix server` 10084, `pve01` 10683, `pve02` 10685, `SRV1C` 10686, `DC` 10687, `AD` 10688.
 
 ## Автозапуск ВМ и LXC (pve01)
 
@@ -105,9 +107,9 @@ confidence: "Факты сверены с текущими документам�
 - Домен: `krnn.ru`.
 - Контроллеры домена (CURRENT, 2026-10-29): `DC.krnn.ru` (`192.168.200.2`, Windows Server 2025) и `AD.krnn.ru` (`192.168.200.225`, ВМ 2002, Windows Server 2025; повышен до DC 2026-09-07). `repadmin /replsummary` (2026-10-27) показывает только эти два DSA, 0 сбоев в обе стороны (VERIFIED).
 - `ANDQ.krnn.ru` (`192.168.200.10`): **HISTORICAL — больше не контроллер домена.** DFSR на `ANDQ` выполнил демотию 2026-10-23 08:01, в логе позже `IsDc:0, Not a DC` (VERIFIED по логу `dfsr*.log`, присланному администратором, 2026-10-27). Кто и зачем выполнил демотию и что с сервером дальше, не зафиксировано (UNKNOWN). Прежние записи этого файла и документов, где `ANDQ` назван DC, относятся к периоду до 2026-10-23.
-- SYSVOL/DFSR: `State = 4` (Normal) на `AD` и `DC`, шары `SYSVOL` и `NETLOGON` опубликованы, хэши файлов SYSVOL идентичны (VERIFIED, 2026-10-27/28). `MaxOfflineTimeInDays = 60` на обоих. Причина простоя и ход восстановления — `PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001`. Мониторинг DFSR в Zabbix реализован со слов администратора (2026-10-30); состав элементов и триггеров не передан (UNKNOWN).
+- SYSVOL/DFSR: `State = 4` (Normal) на `AD` и `DC`, шары `SYSVOL` и `NETLOGON` опубликованы, хэши файлов SYSVOL идентичны (VERIFIED, 2026-10-27/28). `MaxOfflineTimeInDays = 60` на обоих. Причина простоя и ход восстановления — `PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001`. Мониторинг DFSR и репликации AD в Zabbix реализован на `DC` и `AD` (VERIFIED: `item.get`, 2026-10-29): `ZABBIX-AD-DFSR-MONITORING-2026-001`; срабатывание триггеров на сбое не проверялось.
 - DNS-клиент на `AD` (изменён 2026-10-27): `127.0.0.1`, `192.168.200.10`, `192.168.200.2`. Наличие `192.168.200.10` (демотированный `ANDQ`) в списке не пересматривалось (UNKNOWN).
-- Zabbix Agent 2 установлен и запущен на `DC` и `AD`: `Server=192.168.200.223`, `Hostname=DC` / `AD`, на момент проверки 2026-10-28 `ServerActive=127.0.0.1` (по умолчанию, активный режим не работал). После настройки мониторинга значение не перепроверялось (UNKNOWN).
+- Zabbix Agent 2 установлен и запущен на `DC` и `AD`: `Server=192.168.200.223`, `Hostname=DC` / `AD`, `Timeout=30`, подключён `zabbix_agent2.d` с `ad_dfsr_health.conf` (VERIFIED, 2026-10-28). `ServerActive` до 2026-10-28 был `127.0.0.1` (активный режим не работал) и заменён на адрес сервера Zabbix (`ZABBIX-AD-DFSR-MONITORING-2026-001`).
 - GPO `WinRM` (привязана к `OU=Бедолаги`) потеряла файлы в SYSVOL до работ 2026-10-27. Решение отложено администратором 2026-10-30 как не критичное; состояние, причины и способы возврата — `PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001`, раздел 7а.
 
 ## Стратегия распределения ВМ (отменена администратором 2026-10-28; рассматривалась 2026-10-07)
@@ -131,6 +133,7 @@ confidence: "Факты сверены с текущими документам�
 - При настройке или проверке сетей Ceph всегда сверять `/etc/ceph/ceph.conf` и вывод `ceph config dump`, так как локальный конфиг имеет приоритет при инициализации демонов OSD.
 - Не считать `ANDQ` контроллером домена и не использовать его как донор репликации или DNS-сервер без проверки: демотирован 2026-10-23.
 - Не поднимать `MaxOfflineTimeInDays` DFSR выше 60 насовсем: подъём допустим только временно, чтобы вывести сервер из события 4012, затем вернуть 60 (`PROXMOX-AD-DFSR-SYSVOL-RECOVERY-2026-001`).
+- Значения токенов Zabbix API и пароли не вставлять в чат, документы и скрипты; токен вводится только скрытым вводом в файл с правами 600. Запись через API — только после резервной выгрузки и подтверждения администратора (`ZABBIX-API-CLI-ACCESS-2026-001`).
 
 ## Связанные документы
 
@@ -151,4 +154,6 @@ confidence: "Факты сверены с текущими документам�
 `ZABBIX-STACK-INSTALL-2026-001`,
 `ZABBIX-PVE-API-MONITORING-2026-001`,
 `ZABBIX-LXC-FALSE-ALERTS-2026-001` (ложные алерты Zabbix на LXC 700; расхождения по IP и узлу размещения закрыты — см. `00_Meta/CONFLICTS.md`),
+`ZABBIX-AD-DFSR-MONITORING-2026-001` (мониторинг DFSR/SYSVOL и репликации AD в Zabbix на DC и AD),
+`ZABBIX-API-CLI-ACCESS-2026-001` (доступ к Zabbix API из командной строки, роли, токены, порядок записи),
 `PROXMOX-CEPH-NIC0-DIRECT-LINK-2026-001` (документирует миграцию cluster_network на nic0, настройку MTU 9000 и устранение инцидента с падением OSD из-за конфликтов в ceph.conf).
