@@ -6,7 +6,7 @@ document_type: troubleshooting
 status: completed
 priority: critical
 date_created: 2026-09-19
-date_modified: '2026-09-29'
+date_modified: '2026-11-01'
 next_review: 2026-10-19
 author: cladkyimaffin-hue
 category: 03_VPN
@@ -33,6 +33,12 @@ dont_repeat:
 - Перед переводом всех 18 пользователей на исправленный профиль — сменить local-address/dns-server
   СНАЧАЛА у самого профиля, потом переключать пользователей, а не наоборот (иначе
   будет окно, где пользователи уже на новом профиле, но профиль ещё не исправлен).
+- Не делать вывод «VPN-сервер не запущен» только по пустой вкладке PPP → Interface,
+  потому что интерфейсы l2tp-in и sstp-in динамические и появляются лишь при активных
+  сессиях (общее поведение RouterOS, INFERRED, с документацией не сверялось). Статус
+  серверов смотреть во вкладках L2TP Server и SSTP Server. Так в первой разведке
+  2026-08-30 ошибочно решили, что серверы не активны, аудит 2026-09-19 показал, что
+  они включены.
 related_files:
 - NETWORK-MIKROTIK-TOPOLOGY-2026-001
 - MikroTik-CRITICAL-SECURITY-PLAN-2026-001
